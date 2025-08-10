@@ -22,7 +22,7 @@ pub struct Set {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct QuestionItem {
+pub struct Tossup {
     #[serde(rename = "_id")]
     pub id: String,
     pub question: String,
@@ -43,7 +43,7 @@ pub struct QuestionItem {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Tossups {
-    pub tossups: Vec<QuestionItem>,
+    pub tossups: Vec<Tossup>,
 }
 pub async fn random_tossup(
     reqwest: &reqwest::Client,
@@ -65,13 +65,4 @@ pub async fn random_tossup(
     let response = reqwest.get(url).send().await?;
     let response = response.json::<Tossups>().await?;
     Ok(response)
-}
-
-pub fn format_question(question: &str) -> String {
-    question
-        .replace("<b>", "**")
-        .replace("</b>", "**")
-        .replace("<i>", "_")
-        .replace("</i>", "_")
-    // .replace("(*)", ":star:")
 }

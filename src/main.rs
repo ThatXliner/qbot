@@ -1,8 +1,9 @@
 use poise::serenity_prelude as serenity;
 
+use qbot::read::read_question;
 use qbot::{Data, read};
 
-use qbot::qb::{format_question, random_tossup};
+use qbot::qb::random_tossup;
 use qbot::query::{ApiQuery, CATEGORIES, parse_query};
 use qbot::{Context, Error};
 
@@ -22,9 +23,7 @@ async fn tossup(
         if let Ok(api_params) = parsed_results {
             let reqwest = &ctx.data().reqwest;
             let get_tossup = random_tossup(reqwest, &api_params).await?;
-            if let Some(tossup) = get_tossup.tossups.first() {
-                ctx.say(format_question(&tossup.question)).await?;
-            }
+            read_question(&ctx, get_tossup.tossups).await?;
             // if let Some(channel) = ctx.guild_channel().await {
             //     ctx.say("Got it").await?;
             //     channel
@@ -46,9 +45,7 @@ async fn tossup(
     } else {
         let reqwest = &ctx.data().reqwest;
         let get_tossup = random_tossup(reqwest, &ApiQuery::default()).await?;
-        if let Some(tossup) = get_tossup.tossups.first() {
-            ctx.say(format_question(&tossup.question)).await?;
-        }
+        read_question(&ctx, get_tossup.tossups).await?;
     }
     Ok(())
 }

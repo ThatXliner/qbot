@@ -1,10 +1,33 @@
-use poise::serenity_prelude::*;
+use serenity::{
+    all::{self, EventHandler, Ready},
+    async_trait,
+};
 use tracing::info;
+
+use crate::{Context, Error, qb::Tossup};
 pub struct Handler;
+
+fn format_question(question: &str) -> String {
+    question
+        .replace("<b>", "**")
+        .replace("</b>", "**")
+        .replace("<i>", "_")
+        .replace("</i>", "_")
+    // .replace("(*)", ":star:")
+}
+
+pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<(), Error> {
+    if let Some(tossup) = tossups.first() {
+        ctx.say(format_question(&tossup.question)).await?;
+    } else {
+        ctx.say("No tossups found").await?;
+    }
+    Ok(())
+}
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn ready(&self, _ctx: Context, ready: Ready) {
+    async fn ready(&self, _ctx: all::Context, ready: Ready) {
         info!("{} is connected!", ready.user.name);
         // for guild in ready.guilds {
         //     info!(
