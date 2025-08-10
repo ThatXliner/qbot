@@ -22,7 +22,7 @@ async fn tossup(
         if let Ok(api_params) = parsed_results {
             let reqwest = &ctx.data().reqwest;
             let get_tossup = random_tossup(reqwest, &api_params).await?;
-            if let Some(tossup) = get_tossup.tossups.get(0) {
+            if let Some(tossup) = get_tossup.tossups.first() {
                 ctx.say(format_question(&tossup.question)).await?;
             }
             // if let Some(channel) = ctx.guild_channel().await {
@@ -35,7 +35,7 @@ async fn tossup(
             //                 random_tossup(reqwest, &api_params)
             //                     .await?
             //                     .tossups
-            //                     .get(0)
+            //                     .first()
             //                     .unwrap()
             //                     .question
             //             ),
@@ -46,7 +46,7 @@ async fn tossup(
     } else {
         let reqwest = &ctx.data().reqwest;
         let get_tossup = random_tossup(reqwest, &ApiQuery::default()).await?;
-        if let Some(tossup) = get_tossup.tossups.get(0) {
+        if let Some(tossup) = get_tossup.tossups.first() {
             ctx.say(format_question(&tossup.question)).await?;
         }
     }

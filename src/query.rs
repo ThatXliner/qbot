@@ -61,23 +61,22 @@ impl fmt::Display for Expr {
 }
 
 /// Result after validation, ready for API
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ApiQuery {
     pub categories: Vec<String>,
     pub subcategories: Vec<String>,
     pub alternate_subcategories: Vec<String>,
 }
-
-impl Default for ApiQuery {
-    fn default() -> Self {
+impl ApiQuery {
+    pub fn from(raw: (Vec<String>, Vec<String>, Vec<String>)) -> Self {
+        let (categories, subcategories, alternate_subcategories) = raw;
         Self {
-            categories: vec![],
-            subcategories: vec![],
-            alternate_subcategories: vec![],
+            categories,
+            subcategories,
+            alternate_subcategories,
         }
     }
 }
-
 #[derive(Debug)]
 pub enum Error {
     // Parse errors
@@ -223,7 +222,7 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Erro
             let norm = capitalize_token(t);
             for (key, value) in CATEGORIES.entries() {
                 // not even sure if this is right
-                if key.to_string() == norm {
+                if *key == norm {
                     return Ok((
                         vec![key.to_string()],
                         value.0.to_vec().iter().map(|s| s.to_string()).collect(),

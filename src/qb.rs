@@ -51,15 +51,15 @@ pub async fn random_tossup(
 ) -> Result<Tossups, reqwest::Error> {
     let mut url = Url::parse("https://www.qbreader.org/api/random-tossup").unwrap();
     for category in &api_params.categories {
-        url.query_pairs_mut().append_pair("categories", &category);
+        url.query_pairs_mut().append_pair("categories", category);
     }
     for subcategory in &api_params.subcategories {
         url.query_pairs_mut()
-            .append_pair("subcategories", &subcategory);
+            .append_pair("subcategories", subcategory);
     }
     for alternate_subcategory in &api_params.alternate_subcategories {
         url.query_pairs_mut()
-            .append_pair("alternateSubcategories", &alternate_subcategory);
+            .append_pair("alternateSubcategories", alternate_subcategory);
     }
 
     let response = reqwest.get(url).send().await?;
