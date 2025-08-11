@@ -1,18 +1,12 @@
 use ::serenity::all::Mentionable;
-use dashmap::DashMap;
 use poise::serenity_prelude as serenity;
 use std::collections::HashSet;
 
-use tokio::sync::Mutex;
-use tokio::sync::Notify;
-use tokio::time::Duration;
+use tokio::time::{Duration, sleep, Instant};
 
-use tokio::time::sleep;
 use tracing::info;
 
 use crate::{Context, Data, Error, QuestionState, qb::Tossup};
-
-const BUZZ_TIME_SECONDS: u64 = 10;
 fn format_question(question: &str) -> String {
     question.replace("*", "\\*")
     // .replace("<b>", "**")
@@ -39,7 +33,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
     let channel = ctx.channel_id();
     // Might be unnecessary but scoped to avoid deadlocks
     {
-        ctx.data().reading_states.insert(
+        ctx.data().reading_states.lock().await.insert(
             channel,
             (
                 QuestionState::Reading,
@@ -54,13 +48,18 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
     // for power. This way we maximize delay to allow humans to read
     // and get the power
     sleep(Duration::from_millis(750)).await;
+    
     loop {
         info!("Pre reading loop");
-        let Some(state) = ctx.data().reading_states.get(&channel) else {
-            break;
+        let current_state = {
+            let states = ctx.data().reading_states.lock().await;
+            match states.get(&channel) {
+                Some(state) => state.clone(),
+                None => break,
+            }
         };
-        info!("Reading loop: {:?}", &state.0);
-        match &state.0 {
+        info!("Reading loop: {:?}", &current_state.0);
+        match &current_state.0 {
             QuestionState::Reading => {
                 // The numbers here are arbitrarily chosen, empirically tuned
                 // for a balance between reading speed and simulating 180 WPM
@@ -80,18 +79,24 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 sleep(Duration::from_millis(750)).await;
 
                 // Check for potential state changes between then and now
-                let Some(state) = ctx.data().reading_states.get(&channel) else {
-                    info!("Post message edit: the state doesn't exist anymore; breaking");
-                    break;
+                let updated_state = {
+                    let states = ctx.data().reading_states.lock().await;
+                    match states.get(&channel) {
+                        Some(state) => state.clone(),
+                        None => {
+                            info!("Post message edit: the state doesn't exist anymore; breaking");
+                            break;
+                        }
+                    }
                 };
-                match state.0 {
+                match updated_state.0 {
                     QuestionState::Reading => {
                         if chunk.join(" ").contains("(*)") {
                             info!("Post message edit: powering down");
-                            ctx.data()
-                                .reading_states
-                                .entry(channel)
-                                .and_modify(|value| value.1 = false);
+                            let mut states = ctx.data().reading_states.lock().await;
+                            if let Some(state) = states.get_mut(&channel) {
+                                state.1 = false;
+                            }
                         };
                     }
                     // Since we're looping, this is functionally the same
@@ -102,7 +107,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                     }
                 }
             }
-            QuestionState::Buzzed(user_id, notify, timestamp) => {
+            QuestionState::Buzzed(user_id, timestamp) => {
                 channel
                     .say(
                         &ctx.http(),
@@ -110,45 +115,60 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                     )
                     .await?;
 
-                // Set up a timeout to check if the buzz expires
-
-                tokio_scoped::scope(|scope| {
-                    scope.spawn(async move {
-                        sleep(Duration::from_secs(BUZZ_TIME_SECONDS)).await;
-                        let data = ctx.data();
-                        let Some(new_state) = data.reading_states.get(&channel) else {
-                            return;
-                        };
-                        let QuestionState::Buzzed(new_user_id, notify, new_timestamp) =
-                            &new_state.0
-                        else {
-                            return;
-                        };
-                        // XXX: deadlocks??
-                        if *new_user_id == *user_id && *new_timestamp == *timestamp {
-                            // Time is up, mark as invalid
-                            data.reading_states.entry(channel).and_modify(|new_state| {
-                                new_state.0 = QuestionState::Invalid(*user_id);
-                                // The management of the ban list and sending
-                                // the message to the channel is in the main FSM loop
-                            });
-                            notify.notify_one();
+                // Simple timeout approach: sleep for the buzz time and then check if the state is still buzzed
+                let buzz_start = Instant::now();
+                while buzz_start.elapsed() < Duration::from_secs(10) {
+                    sleep(Duration::from_millis(100)).await;
+                    
+                    // Check if the state has changed
+                    let current_state = {
+                        let states = ctx.data().reading_states.lock().await;
+                        states.get(&channel).cloned()
+                    };
+                    
+                    match current_state {
+                        Some((QuestionState::Buzzed(curr_user, curr_timestamp), _, _)) => {
+                            // Still buzzed, check if it's the same buzz
+                            if curr_user != *user_id || curr_timestamp != *timestamp {
+                                // Different buzz, continue with the main loop
+                                break;
+                            }
+                            // Same buzz, continue waiting
                         }
-                    });
-                    scope.block_on(notify.notified());
-                })
+                        _ => {
+                            // State changed (correct, invalid, or other), break out of timeout loop
+                            break;
+                        }
+                    }
+                }
+                
+                // After timeout or state change, check if we need to mark as invalid
+                let should_mark_invalid = {
+                    let states = ctx.data().reading_states.lock().await;
+                    if let Some((QuestionState::Buzzed(curr_user, curr_timestamp), _, _)) = states.get(&channel) {
+                        *curr_user == *user_id && *curr_timestamp == *timestamp && buzz_start.elapsed() >= Duration::from_secs(10)
+                    } else {
+                        false
+                    }
+                };
+                
+                if should_mark_invalid {
+                    let mut states = ctx.data().reading_states.lock().await;
+                    if let Some(state) = states.get_mut(&channel) {
+                        state.0 = QuestionState::Invalid(*user_id);
+                    }
+                }
+                continue;
             }
             QuestionState::Invalid(user_id) => {
-                ctx.data()
-                    .reading_states
-                    .entry(channel)
-                    .and_modify(|state| {
+                {
+                    let mut states = ctx.data().reading_states.lock().await;
+                    if let Some(state) = states.get_mut(&channel) {
                         state.0 = QuestionState::Reading;
                         state.1 = !formatted.contains("(*)");
                         state.2.insert(*user_id);
-                        // The management of the ban list and sending
-                        // the message to the channel is in the main FSM loop
-                    });
+                    }
+                }
                 channel.say(&ctx.http(), "No answer!").await?;
                 continue;
             }
@@ -158,7 +178,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
             }
         }
     }
-    ctx.data().reading_states.remove(&channel);
+    ctx.data().reading_states.lock().await.remove(&channel);
     Ok(())
 }
 
@@ -182,22 +202,28 @@ pub async fn event_handler(
                 return Ok(());
             }
             info!("buzzed by {:?}", new_message.author.name);
-            let Some(state) = data.reading_states.get(&new_message.channel_id) else {
-                info!(
-                    "No reading state found for channel {}",
-                    new_message.channel_id
-                );
-                return Ok(());
+            let current_state = {
+                let states = data.reading_states.lock().await;
+                match states.get(&new_message.channel_id) {
+                    Some(state) => state.clone(),
+                    None => {
+                        info!(
+                            "No reading state found for channel {}",
+                            new_message.channel_id
+                        );
+                        return Ok(());
+                    }
+                }
             };
             info!(
                 "Reading state found for channel {}: {:?}",
-                new_message.channel_id, &state.0
+                new_message.channel_id, &current_state.0
             );
-            match &state.0 {
+            match &current_state.0 {
                 QuestionState::Reading => {
                     let user_id = new_message.author.id;
                     let channel_id = new_message.channel_id;
-                    if state.2.contains(&user_id) {
+                    if current_state.2.contains(&user_id) {
                         info!("Buzz skipped since user already buzzed");
                         return Ok(());
                     };
@@ -205,36 +231,36 @@ pub async fn event_handler(
                     let buzz_timestamp = new_message.timestamp.unix_timestamp();
                     info!("initiating state transition");
                     // State transition
-                    data.reading_states.entry(channel_id).and_modify(|state| {
-                        info!("State transition into Buzzed");
-                        state.0 = QuestionState::Buzzed(
-                            user_id,
-                            Notify::new(),
-                            // I'm going to use Discord's timestamps
-                            buzz_timestamp,
-                        );
-                    });
+                    {
+                        let mut states = data.reading_states.lock().await;
+                        if let Some(state) = states.get_mut(&channel_id) {
+                            info!("State transition into Buzzed");
+                            state.0 = QuestionState::Buzzed(
+                                user_id,
+                                // I'm going to use Discord's timestamps
+                                buzz_timestamp,
+                            );
+                        }
+                    }
                 }
-                QuestionState::Buzzed(id, notify, timestamp) => {
+                QuestionState::Buzzed(id, timestamp) => {
                     if *id != new_message.author.id {
                         return Ok(());
                     }
-                    if (new_message.timestamp.unix_timestamp() - timestamp)
-                        > BUZZ_TIME_SECONDS.try_into().unwrap()
-                    {
+                    if (new_message.timestamp.unix_timestamp() - timestamp) > 10 {
                         info!("Buzz skipped since time limit exceeded");
                         // State transition to invalid is bound to happen
                         return Ok(());
                     }
                     info!("Buzz accepted");
                     // State transition
-                    data.reading_states
-                        .entry(new_message.channel_id)
-                        .and_modify(|state| {
+                    {
+                        let mut states = data.reading_states.lock().await;
+                        if let Some(state) = states.get_mut(&new_message.channel_id) {
                             state.0 = QuestionState::Correct;
                             state.2.insert(new_message.author.id);
-                        });
-                    notify.notify_one();
+                        }
+                    }
                 }
                 _ => {}
             }
