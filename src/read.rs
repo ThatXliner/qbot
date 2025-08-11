@@ -2,7 +2,7 @@ use ::serenity::all::Mentionable;
 use poise::serenity_prelude as serenity;
 use std::collections::HashSet;
 
-use tokio::time::{Duration, Instant, sleep};
+use tokio::time::{Duration, sleep};
 
 use tracing::info;
 
@@ -113,19 +113,38 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                     )
                     .await?;
 
-                // Simple timeout approach: sleep for the buzz time and then check if the state is still buzzed
-                sleep(Duration::from_secs(10)).await;
-                {
-                    let mut states = ctx.data().reading_states.lock().await;
-                    if let Some(state) = states.get_mut(&channel) {
-                        if let QuestionState::Buzzed(user_id, _) = state.0 {
-                            info!("State transition into invalid");
-                            // Timeout
-                            state.0 = QuestionState::Invalid(user_id);
-                        } else {
-                            continue;
+                // Check for state transitions frequently instead of waiting the full 10 seconds
+                let start_time = std::time::Instant::now();
+                let timeout_duration = Duration::from_secs(10);
+                
+                loop {
+                    // Sleep for a short interval to check frequently for state changes
+                    sleep(Duration::from_millis(100)).await;
+                    
+                    // Check if state has changed or timeout reached
+                    let current_state = {
+                        let states = ctx.data().reading_states.lock().await;
+                        match states.get(&channel) {
+                            Some(state) => state.clone(),
+                            None => break,
                         }
-                    } else {
+                    };
+                    
+                    // If state is no longer Buzzed, break to handle the new state
+                    if !matches!(current_state.0, QuestionState::Buzzed(_, _)) {
+                        break;
+                    }
+                    
+                    // Check if timeout has been reached
+                    if start_time.elapsed() >= timeout_duration {
+                        // Timeout - transition to Invalid
+                        let mut states = ctx.data().reading_states.lock().await;
+                        if let Some(state) = states.get_mut(&channel) {
+                            if let QuestionState::Buzzed(user_id, _) = state.0 {
+                                info!("State transition into invalid due to timeout");
+                                state.0 = QuestionState::Invalid(user_id);
+                            }
+                        }
                         break;
                     }
                 }
