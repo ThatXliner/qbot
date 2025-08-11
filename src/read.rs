@@ -34,6 +34,8 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
     let channel = ctx.channel_id();
 
     // Create notification channel for state changes
+    // lowk this is inefficient, and I should switch this to a notifier
+    // but you know what they say: if it ain't broke, don't fix it
     let (state_change_tx, mut state_change_rx) = watch::channel(());
 
     // Might be unnecessary but scoped to avoid deadlocks
@@ -93,15 +95,21 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 }
             }
             QuestionState::Buzzed(user_id, _) => {
+                buffer.push_str(":bell:");
+                message
+                    .edit(&ctx.http(), serenity::EditMessage::new().content(&buffer))
+                    .await?;
                 channel
                     .say(
                         &ctx.http(),
                         format!("buzz from {}! 10 seconds to answer", user_id.mention()),
                     )
                     .await?;
-                // timeout has been reached
+
+                // wait until the user answers or the timeout is reached
                 if timeout(Duration::from_secs(10), state_change_rx.changed())
                     .await
+                    // timeout has been reached
                     .is_err()
                 {
                     let mut states = ctx.data().reading_states.lock().await;
@@ -125,8 +133,23 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                     // Notify about state change
                     let _ = state.3.send(());
                 }
-
                 channel.say(&ctx.http(), "No answer!").await?;
+                buffer = buffer.replace(":bell:", ":no_bell:");
+                message = channel.say(&ctx.http(), &buffer).await?;
+                continue;
+            }
+            QuestionState::Incorrect(user_id) => {
+                let mut states = ctx.data().reading_states.lock().await;
+                if let Some(state) = states.get_mut(&channel) {
+                    state.0 = QuestionState::Reading;
+                    state.1 = !formatted.contains("(*)");
+                    state.2.insert(*user_id);
+                    // Notify about state change
+                    let _ = state.3.send(());
+                }
+                channel.say(&ctx.http(), "incorrect!").await?;
+                buffer = buffer.replace(":bell:", ":no_bell:");
+                message = channel.say(&ctx.http(), &buffer).await?;
                 continue;
             }
             QuestionState::Correct => {
@@ -138,7 +161,9 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 break;
             }
         }
-        if do_depower {
+        // I feel like != false is more readable than current_state.1
+        // because what we're saying here is "if it's not false, we make it false"
+        if do_depower && current_state.1 != false {
             let mut states = ctx.data().reading_states.lock().await;
             if let Some(state) = states.get_mut(&channel) {
                 state.1 = false;

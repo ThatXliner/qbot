@@ -24,6 +24,7 @@ pub enum QuestionState {
     // Buzzed (user_id, timestamp)
     Buzzed(UserId, i64),
     Invalid(UserId),
+    Incorrect(UserId),
     Correct,
     // OPTIMIZE: Idle state rather than deleting it from the map?
     // I'll need to figure out which is more performant
@@ -32,7 +33,8 @@ pub enum QuestionState {
 pub struct Data {
     pub reqwest: reqwest::Client,
     // (channel_id, (question_state, power?, blocklist, state_change_notifier))
-    pub reading_states: Arc<Mutex<HashMap<ChannelId, (QuestionState, bool, HashSet<UserId>, watch::Sender<()>)>>>,
+    pub reading_states:
+        Arc<Mutex<HashMap<ChannelId, (QuestionState, bool, HashSet<UserId>, watch::Sender<()>)>>>,
 } // User data, which is stored and accessible in all command invocations
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Context<'a> = poise::Context<'a, Data, Error>;
@@ -42,7 +44,13 @@ async fn tossup(
     ctx: Context<'_>,
     #[description = "Query for selecting the category"] query: Option<String>,
 ) -> Result<(), Error> {
-    if ctx.data().reading_states.lock().await.contains_key(&ctx.channel_id()) {
+    if ctx
+        .data()
+        .reading_states
+        .lock()
+        .await
+        .contains_key(&ctx.channel_id())
+    {
         send_reply(
             ctx,
             CreateReply::default()
