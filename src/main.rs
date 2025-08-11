@@ -4,7 +4,7 @@ use tracing::debug;
 
 use crate::qb::random_tossup;
 use crate::query::{ApiQuery, CATEGORIES, QueryError, parse_query};
-use crate::read::read_question;
+use crate::read::{event_handler, read_question};
 use std::collections::HashSet;
 
 use serenity::all::{ChannelId, UserId};
@@ -18,7 +18,8 @@ mod read;
 #[derive(Debug)]
 pub enum QuestionState {
     Reading,
-    Buzzed(UserId, Notify),
+    // Buzzed timestamp
+    Buzzed(UserId, Notify, i64),
     Invalid(UserId),
     Correct,
     // OPTIMIZE: Idle state rather than deleting it from the map?
@@ -113,6 +114,9 @@ async fn main() {
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![tossup(), categories()],
+            event_handler: |ctx, event, framework, data| {
+                Box::pin(event_handler(ctx, event, framework, data))
+            },
             ..Default::default()
         })
         .setup(|ctx, _ready, framework| {
