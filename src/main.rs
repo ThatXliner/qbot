@@ -1,25 +1,28 @@
-use dashmap::DashMap;
 use poise::{CreateReply, send_reply, serenity_prelude as serenity};
 use tracing::debug;
 
 use crate::qb::random_tossup;
 use crate::query::{ApiQuery, CATEGORIES, QueryError, parse_query};
 use crate::read::{event_handler, read_question};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use serenity::all::{ChannelId, UserId};
-use tokio::sync::Notify;
+use tokio::sync::{Mutex, watch};
 
 mod qb;
 mod query;
 mod read;
 
+#[cfg(test)]
+mod buzzing_test;
+
 // https://mermaid.live/edit#pako:eNplkMtugzAQRX_FmmUFCNuYOF5UaummGxZdtu7CAocgBTsypg8Q_14eKY2aWc09d-7YmgEKW2oQ0Hrl9VOtKqea8INIg6ZaIJKQW_Rg2k_tJCDVonx13-7eURjeoxetytpUK7yIxXjs-n6lc7egSzS_DW4jmXVOF_4ffTbFNd_k7aLsypi-CAFUri5BeNfpABrtGjVLGOZxCf6oGy1BTG2pD6o7eQnSjFPsrMyrtc1v0tmuOoI4qFM7qe5c_h1so06bUrvMdsaDIMmeL1tADPAFAic0wozSNI055-mOBPANIqURxyThnDG2jzkZA-iXV-OI71gcx5ikmFNGcTL-ABL-f_0
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum QuestionState {
     Reading,
-    // Buzzed timestamp
-    Buzzed(UserId, Notify, i64),
+    // Buzzed (user_id, timestamp)
+    Buzzed(UserId, i64),
     Invalid(UserId),
     Correct,
     // OPTIMIZE: Idle state rather than deleting it from the map?
@@ -28,8 +31,8 @@ pub enum QuestionState {
 #[derive(Debug)]
 pub struct Data {
     pub reqwest: reqwest::Client,
-    // (channel_id, (question_state, power?, blocklist))
-    pub reading_states: DashMap<ChannelId, (QuestionState, bool, HashSet<UserId>)>,
+    // (channel_id, (question_state, power?, blocklist, state_change_notifier))
+    pub reading_states: Arc<Mutex<HashMap<ChannelId, (QuestionState, bool, HashSet<UserId>, watch::Sender<()>)>>>,
 } // User data, which is stored and accessible in all command invocations
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Context<'a> = poise::Context<'a, Data, Error>;
@@ -39,7 +42,7 @@ async fn tossup(
     ctx: Context<'_>,
     #[description = "Query for selecting the category"] query: Option<String>,
 ) -> Result<(), Error> {
-    if ctx.data().reading_states.contains_key(&ctx.channel_id()) {
+    if ctx.data().reading_states.lock().await.contains_key(&ctx.channel_id()) {
         send_reply(
             ctx,
             CreateReply::default()
@@ -124,7 +127,7 @@ async fn main() {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                 Ok(Data {
                     reqwest: reqwest::Client::new(),
-                    reading_states: DashMap::new(),
+                    reading_states: Arc::new(Mutex::new(HashMap::new())),
                 })
             })
         })

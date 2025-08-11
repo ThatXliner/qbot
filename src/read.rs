@@ -1,18 +1,13 @@
-use ::serenity::all::Mentionable;
-use dashmap::DashMap;
+use ::serenity::all::{Mentionable, ReactionType};
 use poise::serenity_prelude as serenity;
 use std::collections::HashSet;
+use tokio::task;
 
-use tokio::sync::Mutex;
-use tokio::sync::Notify;
-use tokio::time::Duration;
-
-use tokio::time::sleep;
+use tokio::sync::watch;
+use tokio::time::{Duration, sleep, timeout};
 use tracing::info;
 
 use crate::{Context, Data, Error, QuestionState, qb::Tossup};
-
-const BUZZ_TIME_SECONDS: u64 = 10;
 fn format_question(question: &str) -> String {
     question.replace("*", "\\*")
     // .replace("<b>", "**")
@@ -33,18 +28,23 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
     // Having it bold (or formatted in any manner) is kinda annoying
     let formatted = format_question(&tossup.question_sanitized);
     let mut question = formatted.split(' ');
-    // Start off with 5, an arbitrarily chosen small number
-    let chunk = nth_chunk(&mut question, 5);
+    // Start off with 3, an arbitrarily chosen small number
+    let chunk = nth_chunk(&mut question, 3);
     let mut buffer = chunk.join(" ");
     let channel = ctx.channel_id();
+
+    // Create notification channel for state changes
+    let (state_change_tx, mut state_change_rx) = watch::channel(());
+
     // Might be unnecessary but scoped to avoid deadlocks
     {
-        ctx.data().reading_states.insert(
+        ctx.data().reading_states.lock().await.insert(
             channel,
             (
                 QuestionState::Reading,
                 !formatted.contains("(*)"),
                 HashSet::new(),
+                state_change_tx,
             ),
         );
     }
@@ -53,14 +53,18 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
     // This is so we could move the sleep call to right before we check
     // for power. This way we maximize delay to allow humans to read
     // and get the power
-    sleep(Duration::from_millis(750)).await;
+    let mut do_depower = false;
     loop {
-        info!("Pre reading loop");
-        let Some(state) = ctx.data().reading_states.get(&channel) else {
-            break;
+        // Let potential state transitions happen first
+        task::yield_now().await;
+        let current_state = {
+            let states = ctx.data().reading_states.lock().await;
+            match states.get(&channel) {
+                Some(state) => (state.0.clone(), state.1, state.2.clone()),
+                None => break,
+            }
         };
-        info!("Reading loop: {:?}", &state.0);
-        match &state.0 {
+        match &current_state.0 {
             QuestionState::Reading => {
                 // The numbers here are arbitrarily chosen, empirically tuned
                 // for a balance between reading speed and simulating 180 WPM
@@ -71,100 +75,83 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 }
                 buffer.push(' ');
                 buffer.push_str(&chunk.join(" "));
+
                 message
                     .edit(
                         &ctx.http(),
                         serenity::EditMessage::new().content(buffer.clone()),
                     )
                     .await?;
-                sleep(Duration::from_millis(750)).await;
-
-                // Check for potential state changes between then and now
-                let Some(state) = ctx.data().reading_states.get(&channel) else {
-                    info!("Post message edit: the state doesn't exist anymore; breaking");
-                    break;
-                };
-                match state.0 {
-                    QuestionState::Reading => {
-                        if chunk.join(" ").contains("(*)") {
-                            info!("Post message edit: powering down");
-                            ctx.data()
-                                .reading_states
-                                .entry(channel)
-                                .and_modify(|value| value.1 = false);
-                        };
-                    }
-                    // Since we're looping, this is functionally the same
-                    // as "fallthrough" (which rust doesn't support)
-                    _ => {
-                        info!("Post message edit: state transition");
-                        continue;
-                    }
+                // we defer our depower to after all state transitions have settled
+                // so we can help the user get the power
+                do_depower = chunk.join(" ").contains("(*)");
+                if timeout(Duration::from_millis(750), state_change_rx.changed())
+                    .await
+                    .is_ok()
+                {
+                    continue;
                 }
             }
-            QuestionState::Buzzed(user_id, notify, timestamp) => {
+            QuestionState::Buzzed(user_id, _) => {
                 channel
                     .say(
                         &ctx.http(),
                         format!("buzz from {}! 10 seconds to answer", user_id.mention()),
                     )
                     .await?;
-
-                // Set up a timeout to check if the buzz expires
-
-                tokio_scoped::scope(|scope| {
-                    scope.spawn(async move {
-                        sleep(Duration::from_secs(BUZZ_TIME_SECONDS)).await;
-                        let data = ctx.data();
-                        let Some(new_state) = data.reading_states.get(&channel) else {
-                            return;
-                        };
-                        let QuestionState::Buzzed(new_user_id, notify, new_timestamp) =
-                            &new_state.0
-                        else {
-                            return;
-                        };
-                        // XXX: deadlocks??
-                        if *new_user_id == *user_id && *new_timestamp == *timestamp {
-                            // Time is up, mark as invalid
-                            data.reading_states.entry(channel).and_modify(|new_state| {
-                                new_state.0 = QuestionState::Invalid(*user_id);
-                                // The management of the ban list and sending
-                                // the message to the channel is in the main FSM loop
-                            });
-                            notify.notify_one();
+                // timeout has been reached
+                if timeout(Duration::from_secs(10), state_change_rx.changed())
+                    .await
+                    .is_err()
+                {
+                    let mut states = ctx.data().reading_states.lock().await;
+                    if let Some(state) = states.get_mut(&channel) {
+                        if let QuestionState::Buzzed(user_id, _) = state.0 {
+                            info!("State transition into invalid (timeout)");
+                            state.0 = QuestionState::Invalid(user_id);
+                            // Notify about state change
+                            let _ = state.3.send(());
                         }
-                    });
-                    scope.block_on(notify.notified());
-                })
+                    }
+                }
+                // otherwise, let the state fallthrough the next loop
             }
             QuestionState::Invalid(user_id) => {
-                ctx.data()
-                    .reading_states
-                    .entry(channel)
-                    .and_modify(|state| {
-                        state.0 = QuestionState::Reading;
-                        state.1 = !formatted.contains("(*)");
-                        state.2.insert(*user_id);
-                        // The management of the ban list and sending
-                        // the message to the channel is in the main FSM loop
-                    });
+                let mut states = ctx.data().reading_states.lock().await;
+                if let Some(state) = states.get_mut(&channel) {
+                    state.0 = QuestionState::Reading;
+                    state.1 = !formatted.contains("(*)");
+                    state.2.insert(*user_id);
+                    // Notify about state change
+                    let _ = state.3.send(());
+                }
+
                 channel.say(&ctx.http(), "No answer!").await?;
                 continue;
             }
             QuestionState::Correct => {
-                channel.say(&ctx.http(), "CORRECT").await?;
+                if current_state.1 {
+                    channel.say(&ctx.http(), "CORRECT - power!").await?;
+                } else {
+                    channel.say(&ctx.http(), "CORRECT").await?;
+                }
                 break;
             }
         }
+        if do_depower {
+            let mut states = ctx.data().reading_states.lock().await;
+            if let Some(state) = states.get_mut(&channel) {
+                state.1 = false;
+            }
+        }
     }
-    ctx.data().reading_states.remove(&channel);
+    ctx.data().reading_states.lock().await.remove(&channel);
     Ok(())
 }
 
 // #[instrument]
 pub async fn event_handler(
-    _ctx: &serenity::Context,
+    ctx: &serenity::Context,
     event: &serenity::FullEvent,
     _framework: poise::FrameworkContext<'_, Data, Error>,
     data: &Data,
@@ -178,63 +165,75 @@ pub async fn event_handler(
             if new_message.author.bot {
                 return Ok(());
             }
-            if new_message.content != "buzz" {
-                return Ok(());
-            }
             info!("buzzed by {:?}", new_message.author.name);
-            let Some(state) = data.reading_states.get(&new_message.channel_id) else {
-                info!(
-                    "No reading state found for channel {}",
-                    new_message.channel_id
-                );
-                return Ok(());
+            let current_state = {
+                let states = data.reading_states.lock().await;
+                match states.get(&new_message.channel_id) {
+                    Some(state) => (state.0.clone(), state.1, state.2.clone()),
+                    None => {
+                        info!(
+                            "No reading state found for channel {}",
+                            new_message.channel_id
+                        );
+                        return Ok(());
+                    }
+                }
             };
             info!(
                 "Reading state found for channel {}: {:?}",
-                new_message.channel_id, &state.0
+                new_message.channel_id, &current_state.0
             );
-            match &state.0 {
+            match &current_state.0 {
                 QuestionState::Reading => {
+                    if new_message.content != "buzz" {
+                        return Ok(());
+                    }
                     let user_id = new_message.author.id;
                     let channel_id = new_message.channel_id;
-                    if state.2.contains(&user_id) {
+                    if current_state.2.contains(&user_id) {
                         info!("Buzz skipped since user already buzzed");
+                        new_message
+                            .react(&ctx.http, ReactionType::Unicode("❌".into()))
+                            .await?;
                         return Ok(());
                     };
 
                     let buzz_timestamp = new_message.timestamp.unix_timestamp();
-                    info!("initiating state transition");
                     // State transition
-                    data.reading_states.entry(channel_id).and_modify(|state| {
-                        info!("State transition into Buzzed");
-                        state.0 = QuestionState::Buzzed(
-                            user_id,
-                            Notify::new(),
-                            // I'm going to use Discord's timestamps
-                            buzz_timestamp,
-                        );
-                    });
+                    {
+                        let mut states = data.reading_states.lock().await;
+                        if let Some(state) = states.get_mut(&channel_id) {
+                            info!("State transition into Buzzed");
+                            state.0 = QuestionState::Buzzed(
+                                user_id,
+                                // I'm going to use Discord's timestamps
+                                buzz_timestamp,
+                            );
+                            // Notify about state change
+                            let _ = state.3.send(());
+                        }
+                    }
                 }
-                QuestionState::Buzzed(id, notify, timestamp) => {
+                QuestionState::Buzzed(id, timestamp) => {
                     if *id != new_message.author.id {
                         return Ok(());
                     }
-                    if (new_message.timestamp.unix_timestamp() - timestamp)
-                        > BUZZ_TIME_SECONDS.try_into().unwrap()
-                    {
+                    if (new_message.timestamp.unix_timestamp() - timestamp) > 10 {
                         info!("Buzz skipped since time limit exceeded");
                         // State transition to invalid is bound to happen
                         return Ok(());
                     }
                     info!("Buzz accepted");
                     // State transition
-                    data.reading_states
-                        .entry(new_message.channel_id)
-                        .and_modify(|state| {
+                    {
+                        let mut states = data.reading_states.lock().await;
+                        if let Some(state) = states.get_mut(&new_message.channel_id) {
                             state.0 = QuestionState::Correct;
                             state.2.insert(new_message.author.id);
-                        });
-                    notify.notify_one();
+                            // Notify about state change
+                            let _ = state.3.send(());
+                        }
+                    }
                 }
                 _ => {}
             }
