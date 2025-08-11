@@ -1,10 +1,10 @@
-use ::serenity::all::Mentionable;
+use ::serenity::all::{Mentionable, ReactionType};
 use poise::serenity_prelude as serenity;
 use std::collections::HashSet;
+use tokio::task;
 
-use tokio::time::{Duration, sleep};
 use tokio::sync::watch;
-
+use tokio::time::{Duration, sleep, timeout};
 use tracing::info;
 
 use crate::{Context, Data, Error, QuestionState, qb::Tossup};
@@ -28,14 +28,14 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
     // Having it bold (or formatted in any manner) is kinda annoying
     let formatted = format_question(&tossup.question_sanitized);
     let mut question = formatted.split(' ');
-    // Start off with 5, an arbitrarily chosen small number
-    let chunk = nth_chunk(&mut question, 5);
+    // Start off with 3, an arbitrarily chosen small number
+    let chunk = nth_chunk(&mut question, 3);
     let mut buffer = chunk.join(" ");
     let channel = ctx.channel_id();
-    
+
     // Create notification channel for state changes
     let (state_change_tx, mut state_change_rx) = watch::channel(());
-    
+
     // Might be unnecessary but scoped to avoid deadlocks
     {
         ctx.data().reading_states.lock().await.insert(
@@ -53,9 +53,10 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
     // This is so we could move the sleep call to right before we check
     // for power. This way we maximize delay to allow humans to read
     // and get the power
-    sleep(Duration::from_millis(750)).await;
-
+    let mut do_depower = false;
     loop {
+        // Let potential state transitions happen first
+        task::yield_now().await;
         let current_state = {
             let states = ctx.data().reading_states.lock().await;
             match states.get(&channel) {
@@ -74,43 +75,21 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 }
                 buffer.push(' ');
                 buffer.push_str(&chunk.join(" "));
+
                 message
                     .edit(
                         &ctx.http(),
                         serenity::EditMessage::new().content(buffer.clone()),
                     )
                     .await?;
-                sleep(Duration::from_millis(750)).await;
-
-                // Check for potential state changes between then and now
-                let updated_state = {
-                    let states = ctx.data().reading_states.lock().await;
-                    match states.get(&channel) {
-                        Some(state) => (state.0.clone(), state.1, state.2.clone()),
-                        None => {
-                            info!("Post message edit: the state doesn't exist anymore; breaking");
-                            break;
-                        }
-                    }
-                };
-                match updated_state.0 {
-                    QuestionState::Reading => {
-                        if chunk.join(" ").contains("(*)") {
-                            info!("Post message edit: powering down");
-                            let mut states = ctx.data().reading_states.lock().await;
-                            if let Some(state) = states.get_mut(&channel) {
-                                state.1 = false;
-                                // Notify about state change
-                                let _ = state.3.send(());
-                            }
-                        };
-                    }
-                    // Since we're looping, this is functionally the same
-                    // as "fallthrough" (which rust doesn't support)
-                    _ => {
-                        info!("Post message edit: state transition");
-                        continue;
-                    }
+                // we defer our depower to after all state transitions have settled
+                // so we can help the user get the power
+                do_depower = chunk.join(" ").contains("(*)");
+                if timeout(Duration::from_millis(750), state_change_rx.changed())
+                    .await
+                    .is_ok()
+                {
+                    continue;
                 }
             }
             QuestionState::Buzzed(user_id, _) => {
@@ -120,41 +99,33 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                         format!("buzz from {}! 10 seconds to answer", user_id.mention()),
                     )
                     .await?;
-
-                // Use tokio::select! to wait for either timeout or state change
-                tokio::select! {
-                    // Wait for 10 seconds timeout
-                    _ = sleep(Duration::from_secs(10)) => {
-                        // Timeout occurred, transition to Invalid if still buzzed
-                        let mut states = ctx.data().reading_states.lock().await;
-                        if let Some(state) = states.get_mut(&channel) {
-                            if let QuestionState::Buzzed(user_id, _) = state.0 {
-                                info!("State transition into invalid (timeout)");
-                                state.0 = QuestionState::Invalid(user_id);
-                                // Notify about state change
-                                let _ = state.3.send(());
-                            }
-                        }
-                    }
-                    // Wait for state change notification
-                    _ = state_change_rx.changed() => {
-                        info!("State change notification received");
-                        // State has changed, continue to next loop iteration
-                        continue;
-                    }
-                }
-            }
-            QuestionState::Invalid(user_id) => {
+                // timeout has been reached
+                if timeout(Duration::from_secs(10), state_change_rx.changed())
+                    .await
+                    .is_err()
                 {
                     let mut states = ctx.data().reading_states.lock().await;
                     if let Some(state) = states.get_mut(&channel) {
-                        state.0 = QuestionState::Reading;
-                        state.1 = !formatted.contains("(*)");
-                        state.2.insert(*user_id);
-                        // Notify about state change
-                        let _ = state.3.send(());
+                        if let QuestionState::Buzzed(user_id, _) = state.0 {
+                            info!("State transition into invalid (timeout)");
+                            state.0 = QuestionState::Invalid(user_id);
+                            // Notify about state change
+                            let _ = state.3.send(());
+                        }
                     }
                 }
+                // otherwise, let the state fallthrough the next loop
+            }
+            QuestionState::Invalid(user_id) => {
+                let mut states = ctx.data().reading_states.lock().await;
+                if let Some(state) = states.get_mut(&channel) {
+                    state.0 = QuestionState::Reading;
+                    state.1 = !formatted.contains("(*)");
+                    state.2.insert(*user_id);
+                    // Notify about state change
+                    let _ = state.3.send(());
+                }
+
                 channel.say(&ctx.http(), "No answer!").await?;
                 continue;
             }
@@ -167,6 +138,12 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 break;
             }
         }
+        if do_depower {
+            let mut states = ctx.data().reading_states.lock().await;
+            if let Some(state) = states.get_mut(&channel) {
+                state.1 = false;
+            }
+        }
     }
     ctx.data().reading_states.lock().await.remove(&channel);
     Ok(())
@@ -174,7 +151,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
 
 // #[instrument]
 pub async fn event_handler(
-    _ctx: &serenity::Context,
+    ctx: &serenity::Context,
     event: &serenity::FullEvent,
     _framework: poise::FrameworkContext<'_, Data, Error>,
     data: &Data,
@@ -215,6 +192,9 @@ pub async fn event_handler(
                     let channel_id = new_message.channel_id;
                     if current_state.2.contains(&user_id) {
                         info!("Buzz skipped since user already buzzed");
+                        new_message
+                            .react(&ctx.http, ReactionType::Unicode("❌".into()))
+                            .await?;
                         return Ok(());
                     };
 
