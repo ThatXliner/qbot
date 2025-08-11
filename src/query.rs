@@ -1,4 +1,5 @@
 /// Query language
+/// I need to fix subtraction though; for how it's currently implemented, it's fundamentaly broken
 use phf::phf_map;
 use tracing::debug;
 
@@ -61,7 +62,7 @@ impl fmt::Display for Expr {
 }
 
 /// Result after validation, ready for API
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct ApiQuery {
     pub categories: Vec<String>,
     pub subcategories: Vec<String>,
@@ -266,9 +267,8 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Erro
             aalt.dedup();
             Ok((ac, asub, aalt))
         }
-        // TODO: this needs to be a bit uhh
-        // changed so it won't be flip floppy
-        // but instead cumulative
+        // TODO: make sure this doesn't kill the parent
+        // category... that might require a rehaul
         Expr::Not(a, b) => {
             let (mut ac, mut asub, mut aalt) = validate(a)?;
             let (bc, bsub, balt) = validate(b)?;
@@ -315,4 +315,103 @@ fn build_api_query(expr: &Expr) -> Result<ApiQuery, Error> {
 pub fn parse_query(query_str: &str) -> Result<ApiQuery, Error> {
     let mut tokens = tokenize(query_str);
     parse_expr(&mut tokens).and_then(|expr| build_api_query(&expr))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn q(s: &str) -> Result<ApiQuery, Error> {
+        parse_query(s)
+    }
+
+    #[test]
+    fn single_category() {
+        let r = q("Science").unwrap();
+        assert!(r.categories.contains(&"Science".to_string()));
+        assert!(r.subcategories.contains(&"Biology".to_string()));
+    }
+
+    #[test]
+    fn single_subcategory() {
+        let r = q("Biology").unwrap();
+        assert_eq!(r.categories, vec!["Science"]);
+        assert_eq!(r.subcategories, vec!["Biology"]);
+    }
+
+    #[test]
+    fn alternate_subcategory() {
+        let r = q("Math").unwrap();
+        assert_eq!(r.categories, vec!["Science"]);
+        assert_eq!(r.subcategories, vec!["Other Science"]);
+        assert_eq!(r.alternate_subcategories, vec!["Math"]);
+    }
+
+    #[test]
+    fn multi_word_category() {
+        let r = q("American Literature").unwrap();
+        assert_eq!(r.categories, vec!["Literature"]);
+        assert_eq!(r.subcategories, vec!["American Literature"]);
+    }
+
+    #[test]
+    fn and_operator_same_category() {
+        let r = q("Biology & Chemistry").unwrap();
+        assert_eq!(r.categories, vec!["Science"]);
+        assert!(r.subcategories.contains(&"Biology".to_string()), "{:?}", r);
+        assert!(r.subcategories.contains(&"Chemistry".to_string()));
+    }
+
+    #[test]
+    fn and_operator_different_category_impossible() {
+        let r = q("Biology & History");
+        assert!(matches!(r, Err(Error::ImpossibleBranch(_))));
+    }
+
+    #[test]
+    fn or_operator() {
+        let r = q("Biology + History").unwrap();
+        assert!(r.categories.contains(&"Science".to_string()));
+        assert!(r.categories.contains(&"History".to_string()));
+    }
+
+    #[test]
+    fn not_operator_removes_subcategory() {
+        let r = q("Science - Math").unwrap();
+        assert!(r.categories.contains(&"Science".to_string()), "{:?}", r);
+        assert!(!r.alternate_subcategories.contains(&"Math".to_string()));
+    }
+
+    #[test]
+    fn parentheses_override_precedence() {
+        let r = q("Science & (Biology + Chemistry)").unwrap();
+        assert_eq!(r.categories, vec!["Science"]);
+        assert!(r.subcategories.contains(&"Biology".to_string()));
+        assert!(r.subcategories.contains(&"Chemistry".to_string()));
+    }
+
+    #[test]
+    fn unexpected_token_error() {
+        let r = q("& Science");
+        assert!(matches!(r, Err(Error::UnexpectedToken(_))));
+    }
+
+    #[test]
+    fn unexpected_eof_error() {
+        let mut tokens = tokenize("(");
+        let r = parse_expr(&mut tokens);
+        assert!(matches!(r, Err(Error::UnexpectedEOF)));
+    }
+
+    #[test]
+    fn invalid_category_error() {
+        let r = q("MadeUpCategory");
+        assert!(matches!(r, Err(Error::InvalidCategory(_))));
+    }
+
+    #[test]
+    fn lowercase_and_spacing() {
+        let r = q("  biology  +   history  ").unwrap();
+        assert!(r.categories.contains(&"Science".to_string()));
+        assert!(r.categories.contains(&"History".to_string()));
+    }
 }

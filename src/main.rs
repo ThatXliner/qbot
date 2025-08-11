@@ -1,3 +1,4 @@
+use dashmap::DashMap;
 use poise::serenity_prelude as serenity;
 
 use qbot::read::read_question;
@@ -79,6 +80,7 @@ async fn main() {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                 Ok(Data {
                     reqwest: reqwest::Client::new(),
+                    reading_states: DashMap::new(),
                 })
             })
         })
