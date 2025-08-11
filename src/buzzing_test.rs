@@ -3,7 +3,7 @@ mod tests {
     use crate::{Data, QuestionState};
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
-    use tokio::sync::Mutex;
+    use tokio::sync::{Mutex, watch};
     use serenity::all::{ChannelId, UserId};
 
     fn create_test_data() -> Data {
@@ -21,9 +21,10 @@ mod tests {
         // Insert a reading state
         {
             let mut states = data.reading_states.lock().await;
+            let (tx, _rx) = watch::channel(());
             states.insert(
                 channel_id,
-                (QuestionState::Reading, true, HashSet::new()),
+                (QuestionState::Reading, true, HashSet::new(), tx),
             );
         }
 
@@ -31,7 +32,7 @@ mod tests {
         {
             let states = data.reading_states.lock().await;
             assert!(states.contains_key(&channel_id));
-            if let Some((state, power, _)) = states.get(&channel_id) {
+            if let Some((state, power, _, _)) = states.get(&channel_id) {
                 assert!(matches!(state, QuestionState::Reading));
                 assert_eq!(*power, true);
             }
@@ -48,9 +49,10 @@ mod tests {
         // Start with reading state
         {
             let mut states = data.reading_states.lock().await;
+            let (tx, _rx) = watch::channel(());
             states.insert(
                 channel_id,
-                (QuestionState::Reading, true, HashSet::new()),
+                (QuestionState::Reading, true, HashSet::new(), tx),
             );
         }
 
@@ -65,7 +67,7 @@ mod tests {
         // Verify transition
         {
             let states = data.reading_states.lock().await;
-            if let Some((QuestionState::Buzzed(buzz_user, buzz_timestamp), _, _)) = states.get(&channel_id) {
+            if let Some((QuestionState::Buzzed(buzz_user, buzz_timestamp), _, _, _)) = states.get(&channel_id) {
                 assert_eq!(*buzz_user, user_id);
                 assert_eq!(*buzz_timestamp, timestamp);
             } else {
@@ -82,9 +84,10 @@ mod tests {
         // Insert initial state
         {
             let mut states = data.reading_states.lock().await;
+            let (tx, _rx) = watch::channel(());
             states.insert(
                 channel_id,
-                (QuestionState::Reading, true, HashSet::new()),
+                (QuestionState::Reading, true, HashSet::new(), tx),
             );
         }
 
@@ -128,5 +131,42 @@ mod tests {
             let states = data.reading_states.lock().await;
             assert!(states.contains_key(&channel_id));
         }
+    }
+
+    #[tokio::test]
+    async fn test_state_change_notification() {
+        let data = create_test_data();
+        let channel_id = ChannelId::new(123456789);
+        let user_id = UserId::new(987654321);
+        
+        // Create a watch receiver to test notifications
+        let rx = {
+            let mut states = data.reading_states.lock().await;
+            let (tx, rx) = watch::channel(());
+            states.insert(
+                channel_id,
+                (QuestionState::Reading, true, HashSet::new(), tx.clone()),
+            );
+            rx
+        };
+
+        // Simulate state change and verify notification
+        {
+            let mut states = data.reading_states.lock().await;
+            if let Some(state) = states.get_mut(&channel_id) {
+                state.0 = QuestionState::Buzzed(user_id, 12345);
+                // Send notification
+                let _ = state.3.send(());
+            }
+        }
+
+        // Verify that the notification was sent by checking if the receiver can detect the change
+        let mut rx_clone = rx;
+        let notification_result = tokio::time::timeout(
+            tokio::time::Duration::from_millis(100),
+            rx_clone.changed()
+        ).await;
+        
+        assert!(notification_result.is_ok(), "State change notification should be received");
     }
 }

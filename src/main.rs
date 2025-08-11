@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serenity::all::{ChannelId, UserId};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 
 mod qb;
 mod query;
@@ -31,8 +31,8 @@ pub enum QuestionState {
 #[derive(Debug)]
 pub struct Data {
     pub reqwest: reqwest::Client,
-    // (channel_id, (question_state, power?, blocklist))
-    pub reading_states: Arc<Mutex<HashMap<ChannelId, (QuestionState, bool, HashSet<UserId>)>>>,
+    // (channel_id, (question_state, power?, blocklist, state_change_notifier))
+    pub reading_states: Arc<Mutex<HashMap<ChannelId, (QuestionState, bool, HashSet<UserId>, watch::Sender<()>)>>>,
 } // User data, which is stored and accessible in all command invocations
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Context<'a> = poise::Context<'a, Data, Error>;
