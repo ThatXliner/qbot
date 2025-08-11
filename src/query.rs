@@ -79,7 +79,7 @@ impl ApiQuery {
     }
 }
 #[derive(Debug)]
-pub enum Error {
+pub enum QueryError {
     // Parse errors
     UnexpectedToken(String),
     UnexpectedEOF,
@@ -119,10 +119,10 @@ fn tokenize(input: &str) -> VecDeque<String> {
 }
 
 /// Pratt parser
-fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, Error> {
+fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     let result = parse_or(tokens);
     if !tokens.is_empty() {
-        Err(Error::UnexpectedToken(format!(
+        Err(QueryError::UnexpectedToken(format!(
             "Unexpected tokens: {:?}",
             tokens
         )))
@@ -131,7 +131,7 @@ fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, Error> {
     }
 }
 
-fn parse_or(tokens: &mut VecDeque<String>) -> Result<Expr, Error> {
+fn parse_or(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     let mut node = parse_and(tokens)?;
     if let Some(tok) = tokens.front() {
         if tok == "+" {
@@ -139,14 +139,14 @@ fn parse_or(tokens: &mut VecDeque<String>) -> Result<Expr, Error> {
             let rhs = parse_or(tokens)?;
             node = Expr::Or(Box::new(node), Box::new(rhs));
         } else {
-            return Err(Error::UnexpectedToken(tok.clone()));
+            return Err(QueryError::UnexpectedToken(tok.clone()));
         }
     }
 
     Ok(node)
 }
 
-fn parse_and(tokens: &mut VecDeque<String>) -> Result<Expr, Error> {
+fn parse_and(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     let mut node = parse_not(tokens)?;
     if let Some(tok) = tokens.front() {
         if tok == "&" {
@@ -159,7 +159,7 @@ fn parse_and(tokens: &mut VecDeque<String>) -> Result<Expr, Error> {
     Ok(node)
 }
 
-fn parse_not(tokens: &mut VecDeque<String>) -> Result<Expr, Error> {
+fn parse_not(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     let mut node = parse_primary(tokens)?;
     if let Some(tok) = tokens.front() {
         if tok == "-" {
@@ -172,16 +172,16 @@ fn parse_not(tokens: &mut VecDeque<String>) -> Result<Expr, Error> {
     Ok(node)
 }
 
-fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, Error> {
+fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     if let Some(tok) = tokens.pop_front() {
         match tok.as_str() {
             "(" => {
                 let expr = parse_expr(tokens)?;
                 let Some(next_token) = tokens.front() else {
-                    return Err(Error::UnexpectedEOF);
+                    return Err(QueryError::UnexpectedEOF);
                 };
                 if next_token != ")" {
-                    return Err(Error::UnexpectedToken(format!(
+                    return Err(QueryError::UnexpectedToken(format!(
                         "Unexpected token {:?}, expected ')'",
                         next_token
                     )));
@@ -191,7 +191,7 @@ fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, Error> {
                 Ok(expr)
             }
             // We shouldn't be seeing punctuation here...
-            "&" | "+" | "-" | ")" => Err(Error::UnexpectedToken(tok)),
+            "&" | "+" | "-" | ")" => Err(QueryError::UnexpectedToken(tok)),
             _ => {
                 let mut buf = vec![tok];
                 // The reason why we have this loop is so we can have support for multi-word categories
@@ -211,12 +211,12 @@ fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, Error> {
             }
         }
     } else {
-        Err(Error::UnexpectedEOF)
+        Err(QueryError::UnexpectedEOF)
     }
 }
 
 /// Validate recursively
-fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Error> {
+fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), QueryError> {
     match expr {
         Expr::Token(t) => {
             // TODO: fuzzy match
@@ -239,7 +239,7 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Erro
                     return Ok((vec![key.to_string()], vec![misc_category], vec![norm]));
                 }
             }
-            Err(Error::InvalidCategory(t.clone()))
+            Err(QueryError::InvalidCategory(t.clone()))
         }
         Expr::And(a, b) => {
             let (ac, asub, aalt) = validate(a)?;
@@ -247,7 +247,7 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Erro
             let cc: Vec<_> = ac.iter().filter(|x| bc.contains(x)).cloned().collect();
             // Not sure if this logic is right
             if cc.is_empty() {
-                return Err(Error::ImpossibleBranch(format!("{} & {}", a, b)));
+                return Err(QueryError::ImpossibleBranch(format!("{} & {}", a, b)));
             }
             let sc: Vec<_> = asub.iter().filter(|x| bsub.contains(x)).cloned().collect();
             let alt: Vec<_> = aalt.iter().filter(|x| balt.contains(x)).cloned().collect();
@@ -276,7 +276,7 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Erro
             asub.retain(|x| !bsub.contains(x));
             aalt.retain(|x| !balt.contains(x));
             if ac.is_empty() && asub.is_empty() && aalt.is_empty() {
-                return Err(Error::ImpossibleBranch(format!("{} - {}", a, b)));
+                return Err(QueryError::ImpossibleBranch(format!("{} - {}", a, b)));
             }
             Ok((ac, asub, aalt))
         }
@@ -299,7 +299,7 @@ fn capitalize_token(token: &str) -> String {
         .join(" ")
 }
 
-fn build_api_query(expr: &Expr) -> Result<ApiQuery, Error> {
+fn build_api_query(expr: &Expr) -> Result<ApiQuery, QueryError> {
     let (cats, subs, alts) = validate(expr)?;
     debug!("Debug normalized expression: {}", expr);
     debug!("Categories: {:?}", cats);
@@ -312,7 +312,7 @@ fn build_api_query(expr: &Expr) -> Result<ApiQuery, Error> {
     })
 }
 
-pub fn parse_query(query_str: &str) -> Result<ApiQuery, Error> {
+pub fn parse_query(query_str: &str) -> Result<ApiQuery, QueryError> {
     let mut tokens = tokenize(query_str);
     parse_expr(&mut tokens).and_then(|expr| build_api_query(&expr))
 }
@@ -320,7 +320,7 @@ pub fn parse_query(query_str: &str) -> Result<ApiQuery, Error> {
 mod tests {
     use super::*;
 
-    fn q(s: &str) -> Result<ApiQuery, Error> {
+    fn q(s: &str) -> Result<ApiQuery, QueryError> {
         parse_query(s)
     }
 
@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn and_operator_different_category_impossible() {
         let r = q("Biology & History");
-        assert!(matches!(r, Err(Error::ImpossibleBranch(_))));
+        assert!(matches!(r, Err(QueryError::ImpossibleBranch(_))));
     }
 
     #[test]
@@ -392,20 +392,20 @@ mod tests {
     #[test]
     fn unexpected_token_error() {
         let r = q("& Science");
-        assert!(matches!(r, Err(Error::UnexpectedToken(_))));
+        assert!(matches!(r, Err(QueryError::UnexpectedToken(_))));
     }
 
     #[test]
     fn unexpected_eof_error() {
         let mut tokens = tokenize("(");
         let r = parse_expr(&mut tokens);
-        assert!(matches!(r, Err(Error::UnexpectedEOF)));
+        assert!(matches!(r, Err(QueryError::UnexpectedEOF)));
     }
 
     #[test]
     fn invalid_category_error() {
         let r = q("MadeUpCategory");
-        assert!(matches!(r, Err(Error::InvalidCategory(_))));
+        assert!(matches!(r, Err(QueryError::InvalidCategory(_))));
     }
 
     #[test]

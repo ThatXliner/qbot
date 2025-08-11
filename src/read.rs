@@ -1,10 +1,9 @@
 use std::collections::HashSet;
 use tokio::time::Duration;
 
-use serenity::{
-    all::{self, EditMessage, EventHandler, Ready},
-    async_trait,
-};
+use poise::serenity_prelude::async_trait;
+use poise::serenity_prelude::*;
+use serenity::prelude as serenity;
 use tokio::time::sleep;
 use tracing::info;
 
@@ -56,7 +55,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 // The numbers here are arbitrarily chosen, empirically tuned
                 // for a balance between reading speed and simulating 180 WPM
                 // speaking speed
-                let chunk = nth_chunk(&mut question, 4);
+                let chunk = nth_chunk(&mut question, 5);
                 if chunk.is_empty() {
                     break;
                 }
@@ -100,12 +99,13 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
             }
         }
     }
+    ctx.data().reading_states.remove(&channel);
     Ok(())
 }
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn ready(&self, _ctx: all::Context, ready: Ready) {
+    async fn ready(&self, _ctx: serenity::Context, ready: Ready) {
         info!("{} is connected!", ready.user.name);
         // for guild in ready.guilds {
         //     info!(
@@ -117,11 +117,14 @@ impl EventHandler for Handler {
         //     );
         // }
     }
-    // async fn message(&self, ctx: serenity_prelude::Context, new_message: Message) {
+    // async fn message(&self, ctx: serenity::Context, new_message: Message) {
     //     if new_message.author.bot {
     //         return;
     //     }
-    //     // println!("{:?}", ctx.data);
+    //     {
+    //         let data = ctx.data.read().await;
+    //         println!("{:?}", data);
+    //     }
     // }
     //     if &ctx
     //         .data
