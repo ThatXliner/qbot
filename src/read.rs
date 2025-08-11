@@ -2,7 +2,8 @@ use ::serenity::all::Mentionable;
 use poise::serenity_prelude as serenity;
 use std::collections::HashSet;
 
-use tokio::time::{Duration, Instant, sleep};
+use tokio::time::{Duration, sleep};
+use tokio::sync::watch;
 
 use tracing::info;
 
@@ -31,6 +32,10 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
     let chunk = nth_chunk(&mut question, 5);
     let mut buffer = chunk.join(" ");
     let channel = ctx.channel_id();
+    
+    // Create notification channel for state changes
+    let (state_change_tx, mut state_change_rx) = watch::channel(());
+    
     // Might be unnecessary but scoped to avoid deadlocks
     {
         ctx.data().reading_states.lock().await.insert(
@@ -39,6 +44,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 QuestionState::Reading,
                 !formatted.contains("(*)"),
                 HashSet::new(),
+                state_change_tx,
             ),
         );
     }
@@ -53,7 +59,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
         let current_state = {
             let states = ctx.data().reading_states.lock().await;
             match states.get(&channel) {
-                Some(state) => state.clone(),
+                Some(state) => (state.0.clone(), state.1, state.2.clone()),
                 None => break,
             }
         };
@@ -80,7 +86,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 let updated_state = {
                     let states = ctx.data().reading_states.lock().await;
                     match states.get(&channel) {
-                        Some(state) => state.clone(),
+                        Some(state) => (state.0.clone(), state.1, state.2.clone()),
                         None => {
                             info!("Post message edit: the state doesn't exist anymore; breaking");
                             break;
@@ -94,6 +100,8 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                             let mut states = ctx.data().reading_states.lock().await;
                             if let Some(state) = states.get_mut(&channel) {
                                 state.1 = false;
+                                // Notify about state change
+                                let _ = state.3.send(());
                             }
                         };
                     }
@@ -113,20 +121,26 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                     )
                     .await?;
 
-                // Simple timeout approach: sleep for the buzz time and then check if the state is still buzzed
-                sleep(Duration::from_secs(10)).await;
-                {
-                    let mut states = ctx.data().reading_states.lock().await;
-                    if let Some(state) = states.get_mut(&channel) {
-                        if let QuestionState::Buzzed(user_id, _) = state.0 {
-                            info!("State transition into invalid");
-                            // Timeout
-                            state.0 = QuestionState::Invalid(user_id);
-                        } else {
-                            continue;
+                // Use tokio::select! to wait for either timeout or state change
+                tokio::select! {
+                    // Wait for 10 seconds timeout
+                    _ = sleep(Duration::from_secs(10)) => {
+                        // Timeout occurred, transition to Invalid if still buzzed
+                        let mut states = ctx.data().reading_states.lock().await;
+                        if let Some(state) = states.get_mut(&channel) {
+                            if let QuestionState::Buzzed(user_id, _) = state.0 {
+                                info!("State transition into invalid (timeout)");
+                                state.0 = QuestionState::Invalid(user_id);
+                                // Notify about state change
+                                let _ = state.3.send(());
+                            }
                         }
-                    } else {
-                        break;
+                    }
+                    // Wait for state change notification
+                    _ = state_change_rx.changed() => {
+                        info!("State change notification received");
+                        // State has changed, continue to next loop iteration
+                        continue;
                     }
                 }
             }
@@ -137,6 +151,8 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                         state.0 = QuestionState::Reading;
                         state.1 = !formatted.contains("(*)");
                         state.2.insert(*user_id);
+                        // Notify about state change
+                        let _ = state.3.send(());
                     }
                 }
                 channel.say(&ctx.http(), "No answer!").await?;
@@ -176,7 +192,7 @@ pub async fn event_handler(
             let current_state = {
                 let states = data.reading_states.lock().await;
                 match states.get(&new_message.channel_id) {
-                    Some(state) => state.clone(),
+                    Some(state) => (state.0.clone(), state.1, state.2.clone()),
                     None => {
                         info!(
                             "No reading state found for channel {}",
@@ -213,6 +229,8 @@ pub async fn event_handler(
                                 // I'm going to use Discord's timestamps
                                 buzz_timestamp,
                             );
+                            // Notify about state change
+                            let _ = state.3.send(());
                         }
                     }
                 }
@@ -232,6 +250,8 @@ pub async fn event_handler(
                         if let Some(state) = states.get_mut(&new_message.channel_id) {
                             state.0 = QuestionState::Correct;
                             state.2.insert(new_message.author.id);
+                            // Notify about state change
+                            let _ = state.3.send(());
                         }
                     }
                 }
