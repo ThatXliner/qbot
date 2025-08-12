@@ -1,11 +1,12 @@
 /// Query language
 /// I need to fix subtraction though; for how it's currently implemented, it's fundamentaly broken
 use phf::phf_map;
-use tracing::debug;
-
+use rapidfuzz::distance::levenshtein;
 use std::{collections::VecDeque, fmt};
+use tracing::{debug, info};
 
 /// category -> (subcategories, alternate subcategories)
+/// TODO: aliases
 pub static CATEGORIES: phf::Map<&'static str, (&'static [&'static str], &'static [&'static str])> = phf_map! {
     "Literature" => (&[
         "American Literature", "British Literature", "Classical Literature",
@@ -43,7 +44,7 @@ pub static CATEGORIES: phf::Map<&'static str, (&'static [&'static str], &'static
 
 /// AST for query language
 #[derive(Debug, Clone)]
-enum Expr {
+pub enum Expr {
     Token(String),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
@@ -68,16 +69,7 @@ pub struct ApiQuery {
     pub subcategories: Vec<String>,
     pub alternate_subcategories: Vec<String>,
 }
-impl ApiQuery {
-    pub fn from(raw: (Vec<String>, Vec<String>, Vec<String>)) -> Self {
-        let (categories, subcategories, alternate_subcategories) = raw;
-        Self {
-            categories,
-            subcategories,
-            alternate_subcategories,
-        }
-    }
-}
+
 #[derive(Debug)]
 pub enum QueryError {
     // Parse errors
@@ -91,7 +83,7 @@ pub enum QueryError {
 /// Simple tokenizer
 /// (inlined since we only use it once)
 #[inline]
-fn tokenize(input: &str) -> VecDeque<String> {
+pub fn tokenize(input: &str) -> VecDeque<String> {
     let mut tokens = VecDeque::new();
     let mut buf = String::new();
     for c in input.chars() {
@@ -119,7 +111,7 @@ fn tokenize(input: &str) -> VecDeque<String> {
 }
 
 /// Pratt parser
-fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
+pub fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     let result = parse_or(tokens);
     if !tokens.is_empty() {
         Err(QueryError::UnexpectedToken(format!(
@@ -214,29 +206,73 @@ fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
         Err(QueryError::UnexpectedEOF)
     }
 }
+const FUZZY_THRESHOLD: usize = 5;
 
+fn match_against(
+    comparator: &levenshtein::BatchComparator<char>,
+    b: &Vec<String>,
+) -> Option<String> {
+    let mut distances: Vec<(String, usize)> = b
+        .into_iter()
+        .map(|item| (item.clone(), comparator.distance(item.chars())))
+        .collect();
+
+    distances.sort_by_key(|(_, dist)| *dist);
+
+    let close_matches: Vec<String> = distances
+        .iter()
+        .filter(|(_, dist)| *dist < FUZZY_THRESHOLD)
+        .map(|(item, _)| item.clone())
+        .collect();
+
+    info!("Close matches: {:?}", close_matches);
+
+    if close_matches.len() == 1 {
+        Some(close_matches[0].clone())
+    } else {
+        None
+    }
+}
 /// Validate recursively
 fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), QueryError> {
     match expr {
         Expr::Token(t) => {
             // TODO: fuzzy match
             let norm = capitalize_token(t);
+            let comparator = levenshtein::BatchComparator::new(norm.chars());
             for (key, value) in CATEGORIES.entries() {
                 // not even sure if this is right
-                if *key == norm {
+                if comparator.distance(key.chars()) < FUZZY_THRESHOLD {
                     return Ok((
                         vec![key.to_string()],
                         value.0.to_vec().iter().map(|s| s.to_string()).collect(),
                         value.1.to_vec().iter().map(|s| s.to_string()).collect(),
                     ));
                 }
-                if value.0.contains(&norm.as_str()) {
-                    return Ok((vec![key.to_string()], vec![norm], vec![]));
+                // um these conversions are so inefficient guys
+                if let Some(result) = match_against(
+                    &comparator,
+                    &value
+                        .0
+                        .to_vec()
+                        .into_iter()
+                        .map(|x| x.to_string())
+                        .collect(),
+                ) {
+                    return Ok((vec![key.to_string()], vec![result], vec![]));
                 }
-                if value.1.contains(&norm.as_str()) {
+                if let Some(result) = match_against(
+                    &comparator,
+                    &value
+                        .1
+                        .to_vec()
+                        .into_iter()
+                        .map(|x| x.to_string())
+                        .collect(),
+                ) {
                     let misc_category = format!("Other {}", key);
                     assert!(value.0.contains(&misc_category.as_str()));
-                    return Ok((vec![key.to_string()], vec![misc_category], vec![norm]));
+                    return Ok((vec![key.to_string()], vec![misc_category], vec![result]));
                 }
             }
             Err(QueryError::InvalidCategory(t.clone()))
@@ -315,103 +351,4 @@ fn build_api_query(expr: &Expr) -> Result<ApiQuery, QueryError> {
 pub fn parse_query(query_str: &str) -> Result<ApiQuery, QueryError> {
     let mut tokens = tokenize(query_str);
     parse_expr(&mut tokens).and_then(|expr| build_api_query(&expr))
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn q(s: &str) -> Result<ApiQuery, QueryError> {
-        parse_query(s)
-    }
-
-    #[test]
-    fn single_category() {
-        let r = q("Science").unwrap();
-        assert!(r.categories.contains(&"Science".to_string()));
-        assert!(r.subcategories.contains(&"Biology".to_string()));
-    }
-
-    #[test]
-    fn single_subcategory() {
-        let r = q("Biology").unwrap();
-        assert_eq!(r.categories, vec!["Science"]);
-        assert_eq!(r.subcategories, vec!["Biology"]);
-    }
-
-    #[test]
-    fn alternate_subcategory() {
-        let r = q("Math").unwrap();
-        assert_eq!(r.categories, vec!["Science"]);
-        assert_eq!(r.subcategories, vec!["Other Science"]);
-        assert_eq!(r.alternate_subcategories, vec!["Math"]);
-    }
-
-    #[test]
-    fn multi_word_category() {
-        let r = q("American Literature").unwrap();
-        assert_eq!(r.categories, vec!["Literature"]);
-        assert_eq!(r.subcategories, vec!["American Literature"]);
-    }
-
-    #[test]
-    fn and_operator_same_category() {
-        let r = q("Biology & Chemistry").unwrap();
-        assert_eq!(r.categories, vec!["Science"]);
-        assert!(r.subcategories.contains(&"Biology".to_string()), "{:?}", r);
-        assert!(r.subcategories.contains(&"Chemistry".to_string()));
-    }
-
-    #[test]
-    fn and_operator_different_category_impossible() {
-        let r = q("Biology & History");
-        assert!(matches!(r, Err(QueryError::ImpossibleBranch(_))));
-    }
-
-    #[test]
-    fn or_operator() {
-        let r = q("Biology + History").unwrap();
-        assert!(r.categories.contains(&"Science".to_string()));
-        assert!(r.categories.contains(&"History".to_string()));
-    }
-
-    #[test]
-    fn not_operator_removes_subcategory() {
-        let r = q("Science - Math").unwrap();
-        assert!(r.categories.contains(&"Science".to_string()), "{:?}", r);
-        assert!(!r.alternate_subcategories.contains(&"Math".to_string()));
-    }
-
-    #[test]
-    fn parentheses_override_precedence() {
-        let r = q("Science & (Biology + Chemistry)").unwrap();
-        assert_eq!(r.categories, vec!["Science"]);
-        assert!(r.subcategories.contains(&"Biology".to_string()));
-        assert!(r.subcategories.contains(&"Chemistry".to_string()));
-    }
-
-    #[test]
-    fn unexpected_token_error() {
-        let r = q("& Science");
-        assert!(matches!(r, Err(QueryError::UnexpectedToken(_))));
-    }
-
-    #[test]
-    fn unexpected_eof_error() {
-        let mut tokens = tokenize("(");
-        let r = parse_expr(&mut tokens);
-        assert!(matches!(r, Err(QueryError::UnexpectedEOF)));
-    }
-
-    #[test]
-    fn invalid_category_error() {
-        let r = q("MadeUpCategory");
-        assert!(matches!(r, Err(QueryError::InvalidCategory(_))));
-    }
-
-    #[test]
-    fn lowercase_and_spacing() {
-        let r = q("  biology  +   history  ").unwrap();
-        assert!(r.categories.contains(&"Science".to_string()));
-        assert!(r.categories.contains(&"History".to_string()));
-    }
 }

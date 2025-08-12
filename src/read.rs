@@ -4,10 +4,21 @@ use std::collections::HashSet;
 use tokio::task;
 
 use tokio::sync::watch;
-use tokio::time::{Duration, sleep, timeout};
-use tracing::info;
+use tokio::time::{Duration, timeout};
+use tracing::debug;
 
+use crate::check::check_correct_answer;
 use crate::{Context, Data, Error, QuestionState, qb::Tossup};
+/// In case we send this to an LLM
+fn render_html(answer: &str) -> String {
+    answer
+        .replace("<b>", "**")
+        .replace("</b>", "**")
+        .replace("<i>", "_")
+        .replace("</i>", "_")
+        .replace("<u>", "__")
+        .replace("</u>", "__")
+}
 fn format_question(question: &str) -> String {
     question.replace("*", "\\*")
     // .replace("<b>", "**")
@@ -47,6 +58,8 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 !formatted.contains("(*)"),
                 HashSet::new(),
                 state_change_tx,
+                // sob... but it should be fine
+                tossup.clone(),
             ),
         );
     }
@@ -73,6 +86,22 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 // speaking speed
                 let chunk = nth_chunk(&mut question, 5);
                 if chunk.is_empty() {
+                    if timeout(Duration::from_secs(5), state_change_rx.changed())
+                        .await
+                        .is_ok()
+                    {
+                        continue;
+                    }
+                    channel.say(&ctx.http(), "Time's up!").await?;
+                    let states = ctx.data().reading_states.lock().await;
+                    match states.get(&channel) {
+                        Some(state) => {
+                            channel
+                                .say(&ctx.http(), &render_html(&state.4.answer))
+                                .await?;
+                        }
+                        None => break,
+                    }
                     break;
                 }
                 buffer.push(' ');
@@ -115,7 +144,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                     let mut states = ctx.data().reading_states.lock().await;
                     if let Some(state) = states.get_mut(&channel) {
                         if let QuestionState::Buzzed(user_id, _) = state.0 {
-                            info!("State transition into invalid (timeout)");
+                            debug!("State transition into invalid (timeout)");
                             state.0 = QuestionState::Invalid(user_id);
                             // Notify about state change
                             let _ = state.3.send(());
@@ -154,10 +183,23 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
             }
             QuestionState::Correct => {
                 if current_state.1 {
-                    channel.say(&ctx.http(), "CORRECT - power!").await?;
+                    channel.say(&ctx.http(), "Correct - power!").await?;
                 } else {
-                    channel.say(&ctx.http(), "CORRECT").await?;
+                    channel.say(&ctx.http(), "Correct").await?;
                 }
+                // reveal correct answer
+                // TODO: bold matching parts
+
+                let states = ctx.data().reading_states.lock().await;
+                match states.get(&channel) {
+                    Some(state) => {
+                        channel
+                            .say(&ctx.http(), &render_html(&state.4.answer))
+                            .await?;
+                    }
+                    None => break,
+                }
+
                 break;
             }
         }
@@ -170,6 +212,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
             }
         }
     }
+
     ctx.data().reading_states.lock().await.remove(&channel);
     Ok(())
 }
@@ -183,20 +226,27 @@ pub async fn event_handler(
 ) -> Result<(), Error> {
     match event {
         serenity::FullEvent::Ready { data_about_bot, .. } => {
-            info!("{} is connected!", data_about_bot.user.name);
+            debug!("{} is connected!", data_about_bot.user.name);
         }
         // Only manage state transitions
         serenity::FullEvent::Message { new_message } => {
             if new_message.author.bot {
                 return Ok(());
             }
-            info!("buzzed by {:?}", new_message.author.name);
+            debug!("buzzed by {:?}", new_message.author.name);
             let current_state = {
                 let states = data.reading_states.lock().await;
                 match states.get(&new_message.channel_id) {
-                    Some(state) => (state.0.clone(), state.1, state.2.clone()),
+                    // Yo... is cloning all of this fine?
+                    Some(state) => (
+                        state.0.clone(),
+                        state.1,
+                        state.2.clone(),
+                        state.3.clone(),
+                        state.4.clone(),
+                    ),
                     None => {
-                        info!(
+                        debug!(
                             "No reading state found for channel {}",
                             new_message.channel_id
                         );
@@ -204,7 +254,7 @@ pub async fn event_handler(
                     }
                 }
             };
-            info!(
+            debug!(
                 "Reading state found for channel {}: {:?}",
                 new_message.channel_id, &current_state.0
             );
@@ -216,7 +266,7 @@ pub async fn event_handler(
                     let user_id = new_message.author.id;
                     let channel_id = new_message.channel_id;
                     if current_state.2.contains(&user_id) {
-                        info!("Buzz skipped since user already buzzed");
+                        debug!("Buzz skipped since user already buzzed");
                         new_message
                             .react(&ctx.http, ReactionType::Unicode("❌".into()))
                             .await?;
@@ -228,7 +278,7 @@ pub async fn event_handler(
                     {
                         let mut states = data.reading_states.lock().await;
                         if let Some(state) = states.get_mut(&channel_id) {
-                            info!("State transition into Buzzed");
+                            debug!("State transition into Buzzed");
                             state.0 = QuestionState::Buzzed(
                                 user_id,
                                 // I'm going to use Discord's timestamps
@@ -244,16 +294,25 @@ pub async fn event_handler(
                         return Ok(());
                     }
                     if (new_message.timestamp.unix_timestamp() - timestamp) > 10 {
-                        info!("Buzz skipped since time limit exceeded");
+                        debug!("Buzz skipped since time limit exceeded");
                         // State transition to invalid is bound to happen
                         return Ok(());
                     }
-                    info!("Buzz accepted");
+                    debug!("Buzz accepted");
                     // State transition
-                    {
+                    // I don't want to clone
+                    if check_correct_answer(current_state.4.clone(), new_message.content.as_str()) {
                         let mut states = data.reading_states.lock().await;
                         if let Some(state) = states.get_mut(&new_message.channel_id) {
                             state.0 = QuestionState::Correct;
+                            state.2.insert(new_message.author.id);
+                            // Notify about state change
+                            let _ = state.3.send(());
+                        }
+                    } else {
+                        let mut states = data.reading_states.lock().await;
+                        if let Some(state) = states.get_mut(&new_message.channel_id) {
+                            state.0 = QuestionState::Incorrect(new_message.author.id);
                             state.2.insert(new_message.author.id);
                             // Notify about state change
                             let _ = state.3.send(());

@@ -4,7 +4,7 @@ use url::Url;
 
 use crate::query::ApiQuery;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Packet {
     #[serde(rename = "_id")]
     pub id: String,
@@ -12,7 +12,7 @@ pub struct Packet {
     pub number: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Set {
     #[serde(rename = "_id")]
     pub id: String,
@@ -21,7 +21,7 @@ pub struct Set {
     pub standard: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Tossup {
     #[serde(rename = "_id")]
     pub id: String,
@@ -41,7 +41,7 @@ pub struct Tossup {
     pub question_sanitized: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Tossups {
     pub tossups: Vec<Tossup>,
 }
