@@ -5,12 +5,12 @@ use std::collections::HashSet;
 use tokio::task;
 
 use tokio::sync::watch;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 use tracing::{debug, info};
 
-use crate::check::{Response, check_correct_answer};
+use crate::check::{check_correct_answer, Response};
 use crate::utils::*;
-use crate::{Context, Data, Error, QuestionState, qb::Tossup};
+use crate::{qb::Tossup, Context, Data, Error, QuestionState};
 // TODO: this code structure is suicide for maintainance
 pub async fn read_question(
     ctx: &Context<'_>,

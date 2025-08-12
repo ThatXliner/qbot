@@ -655,10 +655,9 @@ mod tests {
         assert!(!r.alternate_subcategories.contains(&"Math".to_string()));
         // Should still contain other Science subcategories and alternates
         assert!(r.subcategories.contains(&"Biology".to_string()));
-        assert!(
-            r.alternate_subcategories
-                .contains(&"Computer Science".to_string())
-        );
+        assert!(r
+            .alternate_subcategories
+            .contains(&"Computer Science".to_string()));
     }
 
     #[test]
@@ -695,10 +694,9 @@ mod tests {
         let r = q("Science - Math - Computer Science").unwrap();
         assert_eq!(r.categories, vec!["Science"]);
         assert!(!r.alternate_subcategories.contains(&"Math".to_string()));
-        assert!(
-            !r.alternate_subcategories
-                .contains(&"Computer Science".to_string())
-        );
+        assert!(!r
+            .alternate_subcategories
+            .contains(&"Computer Science".to_string()));
         assert!(r.alternate_subcategories.contains(&"Astronomy".to_string()));
     }
 }

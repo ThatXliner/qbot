@@ -1,20 +1,22 @@
-use llm::LLMProvider;
 use llm::builder::{LLMBackend, LLMBuilder};
-use poise::{CreateReply, send_reply, serenity_prelude as serenity};
+use llm::LLMProvider;
+use poise::{send_reply, serenity_prelude as serenity, CreateReply};
 use tracing::debug;
 
-use crate::qb::{Tossup, random_tossup};
-use crate::query::{ApiQuery, CATEGORIES, QueryError, parse_query};
+use crate::qb::{random_tossup, Tossup};
+use crate::query::{parse_query, ApiQuery, QueryError, CATEGORIES};
 use crate::read::{event_handler, read_question};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serenity::all::{ChannelId, UserId};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{watch, Mutex};
 
 // #[cfg(test)]
 // mod buzzing_test;
 mod check;
+#[cfg(test)]
+mod integration_tests;
 #[cfg(test)]
 mod judge_tests;
 mod qb;
@@ -27,8 +29,6 @@ mod read;
 mod utils;
 #[cfg(test)]
 mod utils_tests;
-#[cfg(test)]
-mod integration_tests;
 
 // https://mermaid.live/edit#pako:eNplkMtugzAQRX_FmmUFCNuYOF5UaummGxZdtu7CAocgBTsypg8Q_14eKY2aWc09d-7YmgEKW2oQ0Hrl9VOtKqea8INIg6ZaIJKQW_Rg2k_tJCDVonx13-7eURjeoxetytpUK7yIxXjs-n6lc7egSzS_DW4jmXVOF_4ffTbFNd_k7aLsypi-CAFUri5BeNfpABrtGjVLGOZxCf6oGy1BTG2pD6o7eQnSjFPsrMyrtc1v0tmuOoI4qFM7qe5c_h1so06bUrvMdsaDIMmeL1tADPAFAic0wozSNI055-mOBPANIqURxyThnDG2jzkZA-iXV-OI71gcx5ikmFNGcTL-ABL-f_0
 #[derive(Debug, Clone)]

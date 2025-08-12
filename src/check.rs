@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
+use llm::{chat::ChatMessage, error::LLMError, LLMProvider};
 use rapidfuzz::distance::levenshtein;
 use tera::Tera;
 use tracing::{error, info};
@@ -75,22 +75,20 @@ pub async fn check_correct_answer(
     }
     // TODO: add "matches a subword"?
     // TODO: add word2vec
-    let messages = vec![
-        ChatMessage::user()
-            .content(
-                TEMPLATER
-                    .render(
-                        if prompted {
-                            "prompt_no_prompt.jinja"
-                        } else {
-                            "prompt.jinja"
-                        },
-                        &context,
-                    )
-                    .unwrap(),
-            )
-            .build(),
-    ];
+    let messages = vec![ChatMessage::user()
+        .content(
+            TEMPLATER
+                .render(
+                    if prompted {
+                        "prompt_no_prompt.jinja"
+                    } else {
+                        "prompt.jinja"
+                    },
+                    &context,
+                )
+                .unwrap(),
+        )
+        .build()];
 
     info!("Checking answer for question: {}", question_so_far);
     info!("Answer: {:?}", answer_key);

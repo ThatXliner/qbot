@@ -30,12 +30,7 @@ mod tests {
 
     #[test]
     fn test_case_insensitive_parsing() {
-        let queries = vec![
-            "science",
-            "SCIENCE", 
-            "Science",
-            "sCiEnCe",
-        ];
+        let queries = vec!["science", "SCIENCE", "Science", "sCiEnCe"];
 
         for query in queries {
             let result = parse_query(query).unwrap();
@@ -48,8 +43,12 @@ mod tests {
         let result = parse_query("American Literature + European History").unwrap();
         assert!(result.categories.contains(&"Literature".to_string()));
         assert!(result.categories.contains(&"History".to_string()));
-        assert!(result.subcategories.contains(&"American Literature".to_string()));
-        assert!(result.subcategories.contains(&"European History".to_string()));
+        assert!(result
+            .subcategories
+            .contains(&"American Literature".to_string()));
+        assert!(result
+            .subcategories
+            .contains(&"European History".to_string()));
     }
 
     #[test]
@@ -57,7 +56,7 @@ mod tests {
         // Test: Science & Biology + Math - Computer Science
         // Should be: ((Science & Biology) + Math) - Computer Science
         let result = parse_query("Science & Biology + Math - Computer Science").unwrap();
-        
+
         // Should include Science categories and Math
         assert!(result.categories.contains(&"Science".to_string()));
         // The exact behavior depends on the operator precedence implementation
@@ -69,15 +68,19 @@ mod tests {
     fn test_empty_result_scenarios() {
         // These should result in impossible queries
         let impossible_queries = vec![
-            "Literature & Science",  // Different main categories
-            "Biology & History",     // Different main categories
+            "Literature & Science",       // Different main categories
+            "Biology & History",          // Different main categories
             "Math & American Literature", // Different main categories
         ];
 
         for query in impossible_queries {
             let result = parse_query(query);
-            assert!(matches!(result, Err(QueryError::ImpossibleBranch(_))), 
-                   "Query '{}' should be impossible but got: {:?}", query, result);
+            assert!(
+                matches!(result, Err(QueryError::ImpossibleBranch(_))),
+                "Query '{}' should be impossible but got: {:?}",
+                query,
+                result
+            );
         }
     }
 
@@ -92,7 +95,10 @@ mod tests {
         let result = parse_query("Science - Literature").unwrap();
         assert!(result.categories.contains(&"Science".to_string()));
         // Literature subcategories should not be in the result
-        assert!(!result.subcategories.iter().any(|s| s.contains("Literature")));
+        assert!(!result
+            .subcategories
+            .iter()
+            .any(|s| s.contains("Literature")));
     }
 
     #[test]
@@ -117,14 +123,22 @@ mod tests {
     fn test_long_query_chain() {
         let query = "Science + History + Literature + Fine Arts + Religion + Mythology";
         let result = parse_query(query).unwrap();
-        
+
         let expected_categories = vec![
-            "Science", "History", "Literature", "Fine Arts", "Religion", "Mythology"
+            "Science",
+            "History",
+            "Literature",
+            "Fine Arts",
+            "Religion",
+            "Mythology",
         ];
-        
+
         for category in expected_categories {
-            assert!(result.categories.contains(&category.to_string()), 
-                   "Missing category: {}", category);
+            assert!(
+                result.categories.contains(&category.to_string()),
+                "Missing category: {}",
+                category
+            );
         }
     }
 
@@ -132,9 +146,18 @@ mod tests {
     fn test_category_validation() {
         // Test that all main categories are recognized
         let main_categories = vec![
-            "Science", "History", "Literature", "Fine Arts", 
-            "Religion", "Mythology", "Philosophy", "Social Science",
-            "Current Events", "Geography", "Other Academic", "Pop Culture"
+            "Science",
+            "History",
+            "Literature",
+            "Fine Arts",
+            "Religion",
+            "Mythology",
+            "Philosophy",
+            "Social Science",
+            "Current Events",
+            "Geography",
+            "Other Academic",
+            "Pop Culture",
         ];
 
         for category in main_categories {
@@ -147,10 +170,19 @@ mod tests {
     fn test_common_subcategories() {
         // Test common subcategories are recognized
         let subcategories = vec![
-            "Biology", "Chemistry", "Physics", "Math",
-            "American History", "European History", "World History",
-            "American Literature", "British Literature", "Poetry",
-            "Computer Science", "Astronomy", "Earth Science"
+            "Biology",
+            "Chemistry",
+            "Physics",
+            "Math",
+            "American History",
+            "European History",
+            "World History",
+            "American Literature",
+            "British Literature",
+            "Poetry",
+            "Computer Science",
+            "Astronomy",
+            "Earth Science",
         ];
 
         for subcat in subcategories {
@@ -163,14 +195,18 @@ mod tests {
     fn test_tokenizer_edge_cases() {
         // Test various tokenizer scenarios
         let edge_cases = vec![
-            ("Science + History", true),  // Spaces around operators
-            ("Science  +  History", true),  // Multiple spaces
+            ("Science + History", true),   // Spaces around operators
+            ("Science  +  History", true), // Multiple spaces
         ];
 
         for (query, should_succeed) in edge_cases {
             let result = parse_query(query);
             if should_succeed {
-                assert!(result.is_ok(), "Query '{}' should parse successfully", query);
+                assert!(
+                    result.is_ok(),
+                    "Query '{}' should parse successfully",
+                    query
+                );
             } else {
                 assert!(result.is_err(), "Query '{}' should fail to parse", query);
             }
@@ -215,7 +251,7 @@ mod tests {
         // Test that large queries don't cause performance issues
         let mut large_query = String::new();
         let categories = vec!["Science", "History", "Literature"];
-        
+
         for i in 0..100 {
             if i > 0 {
                 large_query.push_str(" + ");
@@ -228,6 +264,10 @@ mod tests {
         let duration = start.elapsed();
 
         assert!(result.is_ok(), "Large query should parse successfully");
-        assert!(duration.as_millis() < 100, "Large query should parse quickly (took {:?})", duration);
+        assert!(
+            duration.as_millis() < 100,
+            "Large query should parse quickly (took {:?})",
+            duration
+        );
     }
 }
