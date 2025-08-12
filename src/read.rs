@@ -263,7 +263,7 @@ pub async fn event_handler(
             };
             match &current_state.0 {
                 QuestionState::Reading => {
-                    if new_message.content != "buzz" {
+                    if new_message.content.to_lowercase() != "buzz" {
                         return Ok(());
                     }
                     let channel_id = new_message.channel_id;
