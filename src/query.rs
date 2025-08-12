@@ -118,7 +118,7 @@ fn tokenize(input: &str) -> VecDeque<String> {
     tokens
 }
 
-/// Pratt parser
+/// Pratt parser - parse a complete expression and ensure all tokens are consumed
 fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     let result = parse_or(tokens);
     if !tokens.is_empty() {
@@ -131,15 +131,20 @@ fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     }
 }
 
+/// Parse a sub-expression (used for parentheses) without requiring all tokens to be consumed
+fn parse_subexpr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
+    parse_or(tokens)
+}
+
 fn parse_or(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     let mut node = parse_and(tokens)?;
-    if let Some(tok) = tokens.front() {
+    while let Some(tok) = tokens.front() {
         if tok == "+" {
             tokens.pop_front();
-            let rhs = parse_or(tokens)?;
+            let rhs = parse_and(tokens)?;
             node = Expr::Or(Box::new(node), Box::new(rhs));
         } else {
-            return Err(QueryError::UnexpectedToken(tok.clone()));
+            break;
         }
     }
 
@@ -148,11 +153,13 @@ fn parse_or(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
 
 fn parse_and(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     let mut node = parse_not(tokens)?;
-    if let Some(tok) = tokens.front() {
+    while let Some(tok) = tokens.front() {
         if tok == "&" {
             tokens.pop_front();
-            let rhs = parse_and(tokens)?;
+            let rhs = parse_not(tokens)?;
             node = Expr::And(Box::new(node), Box::new(rhs));
+        } else {
+            break;
         }
     }
 
@@ -161,11 +168,13 @@ fn parse_and(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
 
 fn parse_not(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     let mut node = parse_primary(tokens)?;
-    if let Some(tok) = tokens.front() {
+    while let Some(tok) = tokens.front() {
         if tok == "-" {
             tokens.pop_front();
             let rhs = parse_primary(tokens)?;
             node = Expr::Not(Box::new(node), Box::new(rhs));
+        } else {
+            break;
         }
     }
 
@@ -176,7 +185,7 @@ fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     if let Some(tok) = tokens.pop_front() {
         match tok.as_str() {
             "(" => {
-                let expr = parse_expr(tokens)?;
+                let expr = parse_subexpr(tokens)?;
                 let Some(next_token) = tokens.front() else {
                     return Err(QueryError::UnexpectedEOF);
                 };
@@ -196,14 +205,13 @@ fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
                 let mut buf = vec![tok];
                 // The reason why we have this loop is so we can have support for multi-word categories
                 loop {
-                    let Some(c) = tokens.pop_front() else { break };
+                    let Some(c) = tokens.front() else { break };
                     match c.as_str() {
                         "&" | "+" | "-" | "(" | ")" => {
-                            tokens.push_front(c); // put it back... this somehow fits the borrow checker
                             break;
                         }
                         _ => {
-                            buf.push(c);
+                            buf.push(tokens.pop_front().unwrap());
                         }
                     }
                 }
@@ -245,13 +253,46 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
             let (ac, asub, aalt) = validate(a)?;
             let (bc, bsub, balt) = validate(b)?;
             let cc: Vec<_> = ac.iter().filter(|x| bc.contains(x)).cloned().collect();
-            // Not sure if this logic is right
+            // Check if categories intersect - if not, it's impossible
             if cc.is_empty() {
                 return Err(QueryError::ImpossibleBranch(format!("{} & {}", a, b)));
             }
-            let sc: Vec<_> = asub.iter().filter(|x| bsub.contains(x)).cloned().collect();
-            let alt: Vec<_> = aalt.iter().filter(|x| balt.contains(x)).cloned().collect();
-            Ok((cc, sc, alt))
+            
+            // For AND operation: if one side specifies subcategories and the other doesn't,
+            // use the more specific side. If both specify subcategories, prefer the more restrictive.
+            let left_has_specifics = !asub.is_empty() || !aalt.is_empty();
+            let right_has_specifics = !bsub.is_empty() || !balt.is_empty();
+            
+            let (result_subs, result_alts) = match (left_has_specifics, right_has_specifics) {
+                (false, true) => {
+                    // Left is general (full category), right is specific - use right
+                    (bsub, balt)
+                }
+                (true, false) => {
+                    // Right is general (full category), left is specific - use left
+                    (asub, aalt)
+                }
+                (true, true) => {
+                    // Both are specific - combine them (this handles cases like "Biology & Chemistry")
+                    let mut combined_subs = asub;
+                    combined_subs.extend(bsub);
+                    combined_subs.sort();
+                    combined_subs.dedup();
+                    
+                    let mut combined_alts = aalt;
+                    combined_alts.extend(balt);
+                    combined_alts.sort();
+                    combined_alts.dedup();
+                    
+                    (combined_subs, combined_alts)
+                }
+                (false, false) => {
+                    // Both are general categories - shouldn't happen in practice
+                    (vec![], vec![])
+                }
+            };
+            
+            Ok((cc, result_subs, result_alts))
         }
         Expr::Or(a, b) => {
             let (mut ac, mut asub, mut aalt) = validate(a)?;
@@ -267,14 +308,34 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
             aalt.dedup();
             Ok((ac, asub, aalt))
         }
-        // TODO: make sure this doesn't kill the parent
-        // category... that might require a rehaul
+        // The minus operator should subtract the second operand from the first
+        // We need to be careful about the logic here:
+        // - If both sides resolve to the same category, we subtract subcategories/alternates
+        // - If they resolve to different categories, we subtract entire categories
         Expr::Not(a, b) => {
             let (mut ac, mut asub, mut aalt) = validate(a)?;
             let (bc, bsub, balt) = validate(b)?;
-            ac.retain(|x| !bc.contains(x));
-            asub.retain(|x| !bsub.contains(x));
-            aalt.retain(|x| !balt.contains(x));
+            
+            // Check if we're subtracting within the same category
+            let common_categories: Vec<_> = ac.iter().filter(|x| bc.contains(x)).cloned().collect();
+            
+            if !common_categories.is_empty() {
+                // We're in the same category, so subtract subcategories and alternates
+                asub.retain(|x| !bsub.contains(x));
+                aalt.retain(|x| !balt.contains(x));
+                // Keep the common categories
+                ac = common_categories;
+            } else {
+                // Different categories, subtract entire categories
+                ac.retain(|x| !bc.contains(x));
+                // If we removed all categories, this is an impossible branch
+                if ac.is_empty() {
+                    return Err(QueryError::ImpossibleBranch(format!("{} - {}", a, b)));
+                }
+            }
+            
+            // If we have no specific subcategories left but still have categories,
+            // we need to include all subcategories of remaining categories
             if ac.is_empty() && asub.is_empty() && aalt.is_empty() {
                 return Err(QueryError::ImpossibleBranch(format!("{} - {}", a, b)));
             }
@@ -413,5 +474,64 @@ mod tests {
         let r = q("  biology  +   history  ").unwrap();
         assert!(r.categories.contains(&"Science".to_string()));
         assert!(r.categories.contains(&"History".to_string()));
+    }
+
+    #[test]
+    fn complex_minus_operator_subcategory_subtraction() {
+        // Test that "Science - Biology" removes Biology but keeps other Science subcategories
+        let r = q("Science - Biology").unwrap();
+        assert_eq!(r.categories, vec!["Science"]);
+        assert!(!r.subcategories.contains(&"Biology".to_string()));
+        assert!(r.subcategories.contains(&"Chemistry".to_string()));
+        assert!(r.subcategories.contains(&"Physics".to_string()));
+    }
+
+    #[test]
+    fn complex_minus_operator_alternate_subtraction() {
+        // Test that "Science - Math" removes Math from alternate subcategories
+        let r = q("Science - Math").unwrap();
+        assert_eq!(r.categories, vec!["Science"]);
+        assert!(!r.alternate_subcategories.contains(&"Math".to_string()));
+        // Should still contain other Science subcategories and alternates
+        assert!(r.subcategories.contains(&"Biology".to_string()));
+        assert!(r.alternate_subcategories.contains(&"Computer Science".to_string()));
+    }
+
+    #[test]
+    fn nested_parentheses() {
+        // A more realistic test: Biology OR Chemistry, but excluding Math subjects
+        let r = q("(Biology + Chemistry) - Math").unwrap();
+        println!("(Biology + Chemistry) - Math: {:?}", r);
+        assert_eq!(r.categories, vec!["Science"]);
+        assert!(r.subcategories.contains(&"Biology".to_string()));
+        assert!(r.subcategories.contains(&"Chemistry".to_string()));
+        // Math should be excluded since we're doing (Biology + Chemistry) - Math
+        assert!(!r.alternate_subcategories.contains(&"Math".to_string()));
+    }
+
+    #[test]
+    fn multiple_and_operators() {
+        let r = q("Science & Biology & Chemistry").unwrap();
+        assert_eq!(r.categories, vec!["Science"]);
+        assert!(r.subcategories.contains(&"Biology".to_string()));
+        assert!(r.subcategories.contains(&"Chemistry".to_string()));
+    }
+
+    #[test]
+    fn multiple_or_operators() {
+        let r = q("Biology + Chemistry + Physics").unwrap();
+        assert_eq!(r.categories, vec!["Science"]);
+        assert!(r.subcategories.contains(&"Biology".to_string()));
+        assert!(r.subcategories.contains(&"Chemistry".to_string()));
+        assert!(r.subcategories.contains(&"Physics".to_string()));
+    }
+
+    #[test]
+    fn multiple_minus_operators() {
+        let r = q("Science - Math - Computer Science").unwrap();
+        assert_eq!(r.categories, vec!["Science"]);
+        assert!(!r.alternate_subcategories.contains(&"Math".to_string()));
+        assert!(!r.alternate_subcategories.contains(&"Computer Science".to_string()));
+        assert!(r.alternate_subcategories.contains(&"Astronomy".to_string()));
     }
 }
