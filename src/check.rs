@@ -10,9 +10,11 @@ pub enum Response {
     Incorrect,
     Prompt(String),
 }
-static RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+static PROMPT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?s)<think>.+</think>\s+").expect("Failed to compile regex")
 });
+static ANSWER_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\s+(\(|\[).+$").expect("Failed to compile regex"));
 static TEMPLATER: LazyLock<Tera> = LazyLock::new(|| {
     let mut output = Tera::default();
 
@@ -72,11 +74,13 @@ pub async fn check_correct_answer(
     // TODO: make this a bit smarter (like perhaps take into account of the prompt)
     prompted: bool,
 ) -> Result<Response, LLMError> {
+    // TODO: normalize digits
     let mut context = tera::Context::new();
     context.insert("question", question_so_far);
     context.insert("response", answer);
     context.insert("answer", answer_key);
-    if levenshtein::normalized_distance(answer_key.chars(), answer.chars()) < 0.3 {
+    let normalized_answer = ANSWER_RE.replace(&answer_key, "").into_owned();
+    if levenshtein::distance(normalized_answer.chars(), answer.chars()) < 5 {
         return Ok(Response::Correct);
     }
 
@@ -99,12 +103,13 @@ pub async fn check_correct_answer(
 
     info!("Checking answer for question: {}", question_so_far);
     info!("Answer: {}", answer_key);
+    info!("Normalized Answer: {}", normalized_answer);
     info!("User answer: {}", answer);
     llm.chat(&messages)
         .await
         .map(|response| response.text().expect("LLM did not respond with text"))
         .map(|text|{
-            RE.replace_all(&text,"").into_owned()
+            PROMPT_RE.replace(&text,"").into_owned()
         })
         .map(|text| {
             let response = text.trim();

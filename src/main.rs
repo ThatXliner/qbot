@@ -48,6 +48,7 @@ pub struct Data {
                 ChannelId,
                 (
                     QuestionState,
+                    // shoot, i need to remove this... but it's gonna be a pain to change...
                     bool,
                     HashSet<UserId>,
                     watch::Sender<()>,

@@ -1,11 +1,12 @@
 use ::serenity::all::{Mentionable, ReactionType};
-use poise::{reply, serenity_prelude as serenity};
+use poise::serenity_prelude as serenity;
 use std::collections::HashSet;
+
 use tokio::task;
 
 use tokio::sync::watch;
 use tokio::time::{Duration, timeout};
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::check::{Response, check_correct_answer};
 use crate::utils::*;
@@ -45,11 +46,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
         );
     }
     let mut message = ctx.say(buffer.clone()).await?.into_message().await?;
-    // Yea.. some dupe, right?
-    // This is so we could move the sleep call to right before we check
-    // for power. This way we maximize delay to allow humans to read
-    // and get the power
-    let mut do_depower = false;
+
     loop {
         // Let potential state transitions happen first
         task::yield_now().await;
@@ -101,9 +98,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                         state.5.push_str(&chunk.join(" "));
                     }
                 }
-                // we defer our depower to after all state transitions have settled
-                // so we can help the user get the power
-                do_depower = chunk.join(" ").contains("(*)");
+
                 if timeout(Duration::from_millis(750), state_change_rx.changed())
                     .await
                     .is_ok()
@@ -122,6 +117,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                         format!("buzz from {}! 10 seconds to answer", user_id.mention()),
                     )
                     .await?;
+                task::yield_now().await;
 
                 // wait until the user answers or the timeout is reached
                 if timeout(Duration::from_secs(10), state_change_rx.changed())
@@ -129,6 +125,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                     // timeout has been reached
                     .is_err()
                 {
+                    info!("Time out reached! (buzz)");
                     let mut states = ctx.data().reading_states.lock().await;
                     if let Some(state) = states.get_mut(&channel) {
                         debug!("State transition into invalid (timeout)");
@@ -144,13 +141,14 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 channel
                     .say(&ctx.http(), format!("{} {}", prompt, user_id.mention()))
                     .await?;
-
+                task::yield_now().await;
                 // wait until the user answers or the timeout is reached
                 if timeout(Duration::from_secs(5), state_change_rx.changed())
                     .await
                     // timeout has been reached
                     .is_err()
                 {
+                    info!("Time out reached! (prompt)");
                     let mut states = ctx.data().reading_states.lock().await;
                     if let Some(state) = states.get_mut(&channel) {
                         debug!("State transition into invalid (timeout)");
@@ -163,6 +161,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
             }
             QuestionState::Judging => {
                 state_change_rx.changed().await?;
+
                 continue;
             }
             QuestionState::Invalid(user_id) => {
@@ -195,7 +194,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 continue;
             }
             QuestionState::Correct => {
-                if current_state.1 {
+                if formatted.contains("(*)") && !buffer.contains("(*)") {
                     channel.say(&ctx.http(), "Correct - power!").await?;
                 } else {
                     channel.say(&ctx.http(), "Correct").await?;
@@ -214,14 +213,6 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 }
 
                 break;
-            }
-        }
-        // I feel like != false is more readable than current_state.1
-        // because what we're saying here is "if it's not false, we make it false"
-        if do_depower && current_state.1 != false {
-            let mut states = ctx.data().reading_states.lock().await;
-            if let Some(state) = states.get_mut(&channel) {
-                state.1 = false;
             }
         }
     }
@@ -342,6 +333,7 @@ pub async fn event_handler(
                         new_message.reply(&ctx.http, "Judging...").await?;
                         state.0 = QuestionState::Judging;
                         let _ = state.3.send(());
+
                         state.0 = match check_correct_answer(
                             &data.llm,
                             &current_state.5,
