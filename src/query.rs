@@ -328,12 +328,10 @@ fn match_against(
 fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), QueryError> {
     match expr {
         Expr::Token(t) => {
-            // TODO: implement fuzzy matching for category names
-            let norm = capitalize_token(t);
-            let comparator = levenshtein::BatchComparator::new(norm.chars());
+            let comparator = levenshtein::BatchComparator::new(t.to_lowercase().chars());
             for (key, value) in CATEGORIES.entries() {
                 // Check if it's a main category (e.g., "Science")
-                if comparator.distance(key.chars()) < FUZZY_THRESHOLD {
+                if comparator.distance(key.to_lowercase().chars()) < FUZZY_THRESHOLD {
                     return Ok((
                         vec![key.to_string()],
                         value.0.to_vec().iter().map(|s| s.to_string()).collect(),
@@ -347,7 +345,7 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
                         .0
                         .to_vec()
                         .into_iter()
-                        .map(|x| x.to_string())
+                        .map(|x| x.to_string().to_lowercase())
                         .collect(),
                 ) {
                     return Ok((vec![key.to_string()], vec![result], vec![]));
@@ -359,7 +357,7 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
                         .1
                         .to_vec()
                         .into_iter()
-                        .map(|x| x.to_string())
+                        .map(|x| x.to_string().to_lowercase())
                         .collect(),
                 ) {
                     let misc_category = format!("Other {}", key);

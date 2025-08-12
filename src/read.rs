@@ -247,7 +247,15 @@ pub async fn event_handler(
                 let states = data.reading_states.lock().await;
                 match states.get(&new_message.channel_id) {
                     // Yo... is cloning all of this fine?
-                    Some(state) => state.clone(),
+                    Some(state) => (
+                        state.0.clone(),
+                        state.1,
+                        state.2.contains(&new_message.author.id),
+                        // Answer sanitized
+                        state.4.answer_sanitized.clone(),
+                        // Question so far
+                        state.5.clone(),
+                    ),
                     None => {
                         return Ok(());
                     }
@@ -258,9 +266,8 @@ pub async fn event_handler(
                     if new_message.content != "buzz" {
                         return Ok(());
                     }
-                    let user_id = new_message.author.id;
                     let channel_id = new_message.channel_id;
-                    if current_state.2.contains(&user_id) {
+                    if current_state.2 {
                         debug!("Buzz skipped since user already buzzed");
                         new_message
                             .react(&ctx.http, ReactionType::Unicode("❌".into()))
@@ -274,7 +281,7 @@ pub async fn event_handler(
                         if let Some(state) = states.get_mut(&channel_id) {
                             debug!("State transition into Buzzed");
                             state.0 = QuestionState::Buzzed(
-                                user_id,
+                                new_message.author.id,
                                 // I'm going to use Discord's timestamps
                                 new_message.timestamp.unix_timestamp(),
                             );
@@ -300,9 +307,9 @@ pub async fn event_handler(
                         let _ = state.3.send(());
                         state.0 = match check_correct_answer(
                             &data.llm,
-                            &current_state.5,
+                            &current_state.4,
                             new_message.content.as_str(),
-                            &current_state.4.answer_sanitized,
+                            &current_state.3,
                             false,
                         )
                         .await
@@ -342,9 +349,9 @@ pub async fn event_handler(
 
                         state.0 = match check_correct_answer(
                             &data.llm,
-                            &current_state.5,
+                            &current_state.4,
                             new_message.content.as_str(),
-                &current_state.4.answer_sanitized,
+                            &current_state.3,
                             true,
                         )
                         .await

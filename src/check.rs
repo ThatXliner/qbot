@@ -82,7 +82,11 @@ pub async fn check_correct_answer(
     context.insert("response", answer);
     context.insert("answer", answer_key);
     let normalized_answer = ANSWER_RE.replace(&answer_key, "").into_owned();
-    if levenshtein::distance(normalized_answer.chars(), answer.chars()) < FUZZY_THRESHOLD {
+    if levenshtein::distance(
+        normalized_answer.to_lowercase().chars(),
+        answer.to_lowercase().chars(),
+    ) < FUZZY_THRESHOLD
+    {
         return Ok(Response::Correct);
     }
     // TODO: add word2vec
