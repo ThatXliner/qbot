@@ -12,7 +12,11 @@ use crate::check::{Response, check_correct_answer};
 use crate::utils::*;
 use crate::{Context, Data, Error, QuestionState, qb::Tossup};
 // TODO: this code structure is suicide for maintainance
-pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<(), Error> {
+pub async fn read_question(
+    ctx: &Context<'_>,
+    tossups: Vec<Tossup>,
+    say: bool,
+) -> Result<(), Error> {
     let Some(tossup) = tossups.first() else {
         ctx.say("No tossups found").await?;
         return Ok(());
@@ -45,7 +49,12 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
             ),
         );
     }
-    let mut message = ctx.say(buffer.clone()).await?.into_message().await?;
+
+    let mut message = if say {
+        ctx.say(buffer.clone()).await?.into_message().await?
+    } else {
+        ctx.channel_id().say(&ctx.http(), buffer.clone()).await?
+    };
 
     loop {
         // Let potential state transitions happen first

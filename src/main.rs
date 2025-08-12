@@ -94,7 +94,7 @@ async fn tossup(
 
     let number_of_questions = number.unwrap_or(1);
 
-    let tossup = if let Some(query) = query {
+    let tossups = if let Some(query) = query {
         let mut parsed_results = parse_query(&query);
         debug!("Query requested: {:?}", query);
         debug!("Parsed query results: {:?}", parsed_results);
@@ -137,13 +137,13 @@ async fn tossup(
         get_tossup.tossups
     };
 
-    if tossup.is_empty() {
+    if tossups.is_empty() {
         ctx.say("No tossups found").await?;
         return Ok(());
     }
 
     // Read questions one by one
-    for (index, question) in tossup.iter().enumerate() {
+    for (index, question) in tossups.iter().enumerate() {
         if index > 0 {
             // Wait for previous question to finish
             while ctx
@@ -157,15 +157,17 @@ async fn tossup(
             }
 
             // Announce next question
-            ctx.say("🔄 **Next question**").await?;
+            ctx.channel_id()
+                .say(&ctx.http(), "🔄 **Next question**")
+                .await?;
             // Small delay before starting next question
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
 
-        read_question(&ctx, vec![question.clone()]).await?;
+        read_question(&ctx, vec![question.clone()], index == 0).await?;
 
         // If this is not the last question, wait for it to complete
-        if index < tossup.len() - 1 {
+        if index < tossups.len() - 1 {
             // Wait for the question reading to complete
             while ctx
                 .data()
