@@ -306,7 +306,7 @@ pub async fn event_handler(
                             false,
                         )
                         .await
-                        .unwrap()
+                        .map_err(|_|"Failed to access LLM")?
                         // State transition
                         {
                             Response::Correct => QuestionState::Correct,
@@ -348,7 +348,7 @@ pub async fn event_handler(
                             true,
                         )
                         .await
-                        .unwrap()
+                        .map_err(|_|"Failed to access LLM")?
                         // State transition
                         {
                             Response::Correct => QuestionState::Correct,

@@ -60,23 +60,7 @@ pub struct Data {
     >,
     pub llm: Box<dyn LLMProvider>,
 }
-// impl Default for Data {
-//     fn default() -> Self {
-//         Self {
-//             reqwest: reqwest::Client::new(),
-//             reading_states: Arc::new(Mutex::new(HashMap::new())),
-//             llm: LLMBuilder::new()
-//                 .backend(LLMBackend::Ollama) // Use Ollama as the LLM backend
-//                 .base_url("http://127.0.0.1:11434") // Set the Ollama server URL
-//                 .model("llama3:latest")
-//                 .max_tokens(1000) // Set maximum response length
-//                 .temperature(0.7) // Control response randomness (0.0-1.0)
-//                 .stream(false) // Disable streaming responses
-//                 .build()
-//                 .expect("Failed to build LLM (Ollama)"),
-//         }
-//     }
-// }
+
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Context<'a> = poise::Context<'a, Data, Error>;
 

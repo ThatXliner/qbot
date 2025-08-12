@@ -65,7 +65,9 @@ Here is the answer key:
 Judge, what is your response? Remember to be lenient on typos"#).unwrap();
     output
 });
-
+// Threshold for fuzzy matching
+// intentionally separate from its appearance in the other file
+const FUZZY_THRESHOLD: usize = 5;
 pub async fn check_correct_answer(
     llm: &Box<dyn LLMProvider>,
     question_so_far: &str,
@@ -80,7 +82,7 @@ pub async fn check_correct_answer(
     context.insert("response", answer);
     context.insert("answer", answer_key);
     let normalized_answer = ANSWER_RE.replace(&answer_key, "").into_owned();
-    if levenshtein::distance(normalized_answer.chars(), answer.chars()) < 5 {
+    if levenshtein::distance(normalized_answer.chars(), answer.chars()) < FUZZY_THRESHOLD {
         return Ok(Response::Correct);
     }
     // TODO: add word2vec
@@ -107,7 +109,7 @@ pub async fn check_correct_answer(
     info!("User answer: {}", answer);
     llm.chat(&messages)
         .await
-        .map(|response| response.text().expect("LLM did not respond with text"))
+        .map(|response| response.text().expect("LLM did not respond"))
         .map(|text|{
             info!("LLM raw response: {}", text);
             (text.clone(),PROMPT_RE.replace(&text,"").into_owned())
