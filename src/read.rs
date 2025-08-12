@@ -200,6 +200,12 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                     channel.say(&ctx.http(), "Correct").await?;
                 }
                 // reveal correct answer
+                buffer.push(' ');
+                buffer.push_str(&question.collect::<Vec<&str>>().join(" "));
+                message
+                    // no need to clone since we won't ever use it again
+                    .edit(&ctx.http(), serenity::EditMessage::new().content(buffer))
+                    .await?;
                 // TODO: bold matching parts
 
                 let states = ctx.data().reading_states.lock().await;
@@ -304,7 +310,7 @@ pub async fn event_handler(
                         // State transition
                         {
                             Response::Correct => QuestionState::Correct,
-                            Response::Incorrect => {
+                            Response::Incorrect(_) => {
                                 state.2.insert(new_message.author.id);
                                 QuestionState::Incorrect(new_message.author.id)
                             }
@@ -346,7 +352,7 @@ pub async fn event_handler(
                         // State transition
                         {
                             Response::Correct => QuestionState::Correct,
-                            Response::Incorrect | Response::Prompt(_) => {
+                            Response::Incorrect(_) | Response::Prompt(_) => {
                                 state.2.insert(new_message.author.id);
                                 QuestionState::Incorrect(new_message.author.id)
                             }

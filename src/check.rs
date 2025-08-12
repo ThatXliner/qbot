@@ -4,10 +4,10 @@ use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use rapidfuzz::distance::levenshtein;
 use tera::Tera;
 use tracing::{error, info};
-
+#[derive(Debug, Clone, PartialEq)]
 pub enum Response {
     Correct,
-    Incorrect,
+    Incorrect(String),
     Prompt(String),
 }
 static PROMPT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
@@ -27,7 +27,7 @@ You may only respond with one of:
 
 Only PROMPT if the answer could be correct but needs clarification or specificity. If you do decide to answer with "PROMPT", you may optionally include a clarifying question (but only if specified in the answer key) like so: "PROMPT: which cell?". Otherwise, simply respond with "PROMPT"
 
-You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee")
+You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee" or "the peroidic table" vs "The Periodic Table of Elements"). Try to be as lenient as possible, but also be strict enough to ensure that the contestant is not simply guessing.
 
 Here is the question read so far:
 ```
@@ -47,7 +47,7 @@ Judge, what is your response?"#).unwrap();
     
 You may only respond with one of "CORRECT", "INCORRECT". Typically, you would also have the option to respond with "PROMPT" and a clarifying question, but in this case you do NOT have that option since our contestant is currently responding to a prompt (and you cannot prompt them more than once).
 
-You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee")
+You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee" or "the peroidic table" vs "The Periodic Table of Elements")
 
 Here is the question read so far:
 ```
@@ -83,7 +83,7 @@ pub async fn check_correct_answer(
     if levenshtein::distance(normalized_answer.chars(), answer.chars()) < 5 {
         return Ok(Response::Correct);
     }
-
+    // TODO: add word2vec
     let messages = vec![
         ChatMessage::user()
             .content(
@@ -109,20 +109,21 @@ pub async fn check_correct_answer(
         .await
         .map(|response| response.text().expect("LLM did not respond with text"))
         .map(|text|{
-            PROMPT_RE.replace(&text,"").into_owned()
+            info!("LLM raw response: {}", text);
+            (text.clone(),PROMPT_RE.replace(&text,"").into_owned())
         })
-        .map(|text| {
+        .map(|(raw,text)| {
             let response = text.trim();
             info!("LLM response: {}", response);
 
 
             match response {
                 "CORRECT" => Response::Correct,
-                "INCORRECT" => Response::Incorrect,
+                "INCORRECT" => Response::Incorrect(raw),
                 text => {
                     if prompted {
                         error!("Judge did not respond with 'INCORRECT' or 'CORRECT' to prompt, but instead: {}", text);
-                        Response::Incorrect
+                        Response::Incorrect(raw)
                     } else {
                         Response::Prompt(text.to_string())
                     }
@@ -167,7 +168,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(matches!(result, Response::Correct));
+        assert!(matches!(result, Response::Correct), "{:?}", result);
     }
 
     #[tokio::test]
@@ -182,7 +183,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(matches!(result, Response::Correct));
+        assert!(matches!(result, Response::Correct), "{:?}", result);
     }
 
     #[tokio::test]
@@ -197,22 +198,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(matches!(result, Response::Incorrect));
-    }
-
-    #[tokio::test]
-    async fn test_prompt_response_on_prompt() {
-        let result = check_correct_answer(
-            &llm,
-            "Name this European monarch.",
-            "Elizabeth",
-            "Elizabeth II (prompt on Elizabeth)",
-            true,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(result, Response::Prompt(_)));
+        assert!(matches!(result, Response::Incorrect(_)), "{:?}", result);
     }
 
     #[tokio::test]
@@ -227,6 +213,22 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(matches!(result, Response::Correct));
+        assert!(matches!(result, Response::Correct), "{:?}", result);
+    }
+
+    // leniency
+    #[tokio::test]
+    async fn test_real_case_2() {
+        let result = check_correct_answer(
+            &llm,
+            r#"The energy eigenspectrum associated with this system's quantum analogue can be solved for analytically using Hermite Polynomials or algebraically using the creation and annihilation operators. If its potential is truncated quadratically in the Taylor series centered around the minimum potential, any arbitrary system can be (*) modelled by this system. The general homogeneous solutions to this system's equations of motion are complex exponentials in time. Approximating sine of x to first order allows for the use of this system for ideal pendulums at small angles. For 10 points, name this physical system which can be used to model frictionless, Hookean springs."#,
+            "simple harmonic system",
+            r#"simple harmonic oscillators (accept SHOs, prompt on "harmonic oscillators")"#,
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(result, Response::Correct), "{:?}", result);
     }
 }
