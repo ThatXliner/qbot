@@ -509,6 +509,7 @@ fn build_api_query(expr: &Expr) -> Result<ApiQuery, QueryError> {
         categories: if cats.is_empty() { vec![] } else { cats },
         subcategories: if subs.is_empty() { vec![] } else { subs },
         alternate_subcategories: if alts.is_empty() { vec![] } else { alts },
+        number: 1,
     })
 }
 
