@@ -15,13 +15,10 @@ static PROMPT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 });
 static ANSWER_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\s+(\(|\[).+$").expect("Failed to compile regex"));
-static EXTRACT_SUB: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"<\w>(?P<inner>.+)</\w>").expect("Failed to compile regex")
-});
-static TEMPLATER: LazyLock<Tera> = LazyLock::new(|| {
-    let mut output = Tera::new("templates/*.jinja").expect("Failed to parse templates");
-    output
-});
+static EXTRACT_SUB: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"<\w>(.+?)</\w>").expect("Failed to compile regex"));
+static TEMPLATER: LazyLock<Tera> =
+    LazyLock::new(|| Tera::new("templates/latest/*.jinja").expect("Failed to parse templates"));
 // Threshold for fuzzy matching
 // intentionally separate from its appearance in the other file
 const FUZZY_THRESHOLD: usize = 5;
@@ -32,7 +29,7 @@ pub async fn check_correct_answer(
     answer: &str,
     // (answer, answer_sanitized)
     answer_key: &(String, String),
-    // TODO: make this a bit smarter (like perhaps take into account of the prompt)
+    // TODO: account for this in the prompt
     prompted: bool,
 ) -> Result<Response, LLMError> {
     // TODO: normalize digits
@@ -41,14 +38,14 @@ pub async fn check_correct_answer(
         "question",
         &if answer_key.1.contains("read")|| answer_key.1.contains("before") || answer_key.1.contains("mention") {
             format!(
-                "Here is the question read so far:
+                "Since deciding on whether to prompt or mark as incorrect depends on how far we've read, I will also provide the question. Here is the question read so far:
 ```
 {}
 ```",
                 question_so_far
             )
         } else {
-            "Remember, judge strictly but be lenient on typos. Don't think about the question but simply compare the user's answer to the correct answer.".into()
+            "Remember, don't think about the question but simply compare the user's answer to the correct answer.".into()
         },
     );
     context.insert("response", answer);
@@ -63,15 +60,17 @@ pub async fn check_correct_answer(
         return Ok(Response::Correct);
     };
     // Levenshtein distance on extracted subword
-    for normalized_answer in
-        EXTRACT_SUB.captures_iter(&answer_key.0.replace("<u>", "").replace("</u>", ""))
+    for (_, [normalized_answer]) in EXTRACT_SUB
+        .captures_iter(&answer_key.0.replace("<b>", "").replace("</b>", ""))
+        .map(|capture| capture.extract())
     {
-        if let Some(a) = normalized_answer.name("inner").map(|inner| inner.as_str()) {
-            if levenshtein::distance(a.to_lowercase().chars(), answer.to_lowercase().chars())
-                < FUZZY_THRESHOLD
-            {
-                return Ok(Response::Correct);
-            }
+        info!("Normalized answer: {}", normalized_answer);
+        if levenshtein::distance(
+            normalized_answer.to_lowercase().chars(),
+            answer.to_lowercase().chars(),
+        ) < FUZZY_THRESHOLD
+        {
+            return Ok(Response::Correct);
         }
     }
     // TODO: add "matches a subword"?
@@ -226,5 +225,63 @@ mod tests {
         .unwrap();
 
         assert!(matches!(result, Response::Correct), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_real_case_4() {
+        let result = check_correct_answer(
+            &LLM,
+            r#"Description acceptable. A parody of this event involving the delivery of an old lady's birthday cake was included in the Family Guy episode "Saving Private Brian." A participant in this event said to another, "If you want my shirt, I will give it to you afterwards" in response to unwanted physical contact. Luis Medina Cantalejo witnessed this event and informed Horacio Elizondo of its occurrence. This event's target, who was accused of calling its perpetrator "the son of a (*) terrorist whore," later revealed that his actual words were "I prefer the whore that is your sister." That target was Italian defender Marco Materazzi. For 10 points, identify this event that resulted in the ejection of an illustrious French midfielder from the 2006 World Cup final."#,
+            "Headbutt",
+            &e(r#"Zinedine <b><u>Zidane headbutt</u></b>ing Marco Materazzi in the 2006 FIFA World Cup Final [or: Zinedine <b><u>Zidane's ejection</u></b>, obvious equivalents; prompt on: "<b><u>2006</u></b> FIFA <b><u>World Cup Final</u></b>", "<b><u>headbutt</u></b>"]"#, r#"Zinedine Zidane headbutting Marco Materazzi in the 2006 FIFA World Cup Final [or: Zinedine Zidane's ejection, obvious equivalents; prompt on: "2006 FIFA World Cup Final", "headbutt"]"#),
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(result, Response::Correct), "{:?}", result);
+    }
+    #[tokio::test]
+    async fn test_real_case_5() {
+        let result = check_correct_answer(
+            &LLM,
+            r#"Note to players: The answer to this tossup includes both a phenomenon and a setting, such as "bubbles in water." In one diagram, thirteen classes of these phenomena in this setting are bounded by lines on which the Stix elements S, R, and L are either zero or infinite. Stringer diagrams describe the temperature dependence of these phenomena, expanding on the "cold" set of them found on a CMA diagram. A set of these phenomena that are produced by tension in magnetic field lines travel at a speed proportional to the B-field. Particles with a similar velocity to"#,
+            "Radiation",
+            &e(r#"<b><u>wave</u></b>s in <b><u>plasma</u></b>s [accept plasma waves; accept <b><u>oscillations</u></b> in <b><u>plasma</u></b>s or <b><u>plasma oscillation</u></b>s before “oscillations”; accept plasma modes; prompt on waves or oscillations or modes or Alfvén waves or Langmuir waves by asking "In what setting?"]"#, r#"waves in plasmas [accept plasma waves; accept oscillations in plasmas or plasma oscillations before “oscillations”; accept <b><u>plasma modes</u></b>; prompt on <u>wave</u>s or <u>oscillation</u>s or <u>mode</u>s or <u>Alfvén wave</u>s or <u>Langmuir wave</u>s by asking "In what setting?"]"#),
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(result, Response::Incorrect(_)), "{:?}", result);
+    }
+    #[tokio::test]
+    async fn test_real_case_6() {
+        let result = check_correct_answer(
+            &LLM,
+            r#"The ENLIL model uses the predictions of a model of this phenomenon developed by Wang, Sheeley, and Arge that correlates the speed of this phenomenon with flux tube expansion. A highly variable component of this phenomenon is characterized by a relatively high abundance of elements like magnesium, silicon, and iron that have an FIP (F-I-P) below 10eV (ten-E-V). The development of a 3D time-dependent model of this phenomenon from data recorded by the IMPACT and PLASTIC instruments was a scientific objective of the (+) STEREO mission. Eugene Parker showed that this phenomenon causes a related structure to form a ballerina skirt-like spiral. This phenomenon's 50 year low was observed in 2008 by the spacecraft Ulysses. One component of this phenomenon appears to originate from the helmet (*) streamer belt. In 2018, Voyager II (two) passed out of this phenomenon into the VLISM. This phenomenon changes the direction of a comet's ion tail. Joan Feynman studied how this phenomenon interacts with the magnetosphere to cause auroras. For 10 points, name this plasma formed by charged particles escaping the Sun."#,
+            "solar flares",
+            &e(r#"<b><u>solar wind</u></b> [or slow <b><u>solar wind</u></b> or fast <b><u>solar wind</u></b>]"#, r#"solar wind [or slow solar wind or fast solar wind]"#),
+            false,
+        )
+        .await
+        .unwrap();
+
+        // incorrect or prompted
+        assert!(!matches!(result, Response::Correct), "{:?}", result);
+    }
+    #[tokio::test]
+    async fn test_real_case_7() {
+        let result = check_correct_answer(
+            &LLM,
+            r#"This construct can exist if mirror matter exists, and some versions of in include the Somluchowski Trapdoor and the Ranque-Hilsch vortex tube. Landauer and Bennett showed that this construct would have to eventually erase the data that it had collected, and in a criticism of the formulation of this, Leo Szilard noted that taking a measurement would actually require expending energy. Classically, the relative difference in temperature between both parts of this device would increase, and the overall entropy would decrease. For 10 points identify this violator of the second law of thermodynamics who is able to separate"#,
+            "Maxwell",
+            &e(r#"<b><u>Maxwell's Demon</u></b>"#, r#"Maxwell's Demon"#),
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(result, Response::Incorrect(_)), "{:?}", result);
     }
 }
