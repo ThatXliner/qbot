@@ -194,7 +194,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 continue;
             }
             QuestionState::Correct => {
-                if formatted.contains("(*)") && !buffer.contains("(*)") {
+                if formatted.contains("(\\*)") && !buffer.contains("(\\*)") {
                     channel.say(&ctx.http(), "Correct - power!").await?;
                 } else {
                     channel.say(&ctx.http(), "Correct").await?;
@@ -252,7 +252,7 @@ pub async fn event_handler(
                         state.1,
                         state.2.contains(&new_message.author.id),
                         // Answer sanitized
-                        state.4.answer_sanitized.clone(),
+                        (state.4.answer.clone(), state.4.answer_sanitized.clone()),
                         // Question so far
                         state.5.clone(),
                     ),

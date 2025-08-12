@@ -32,7 +32,7 @@
 use phf::phf_map;
 use rapidfuzz::distance::levenshtein;
 use std::{collections::VecDeque, fmt};
-use tracing::{debug, info};
+use tracing::debug;
 
 /// category -> (subcategories, alternate subcategories)
 /// TODO: aliases

@@ -15,6 +15,9 @@ static PROMPT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 });
 static ANSWER_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\s+(\(|\[).+$").expect("Failed to compile regex"));
+static EXTRACT_SUB: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"<\w>(?P<inner>.+)</\w>").expect("Failed to compile regex")
+});
 static TEMPLATER: LazyLock<Tera> = LazyLock::new(|| {
     let mut output = Tera::default();
 
@@ -47,7 +50,7 @@ Judge, what is your response? Remember to be lenient on typos"#).unwrap();
 
 You may only respond with one of "CORRECT", "INCORRECT". Typically, you would also have the option to respond with "PROMPT" and a clarifying question, but in this case you do NOT have that option since our contestant is currently responding to a prompt (and you cannot prompt them more than once).
 
-You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee" or "the peroidic table" vs "The Periodic Table of Elements")
+You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee" or "the peroidic table" vs "The Periodic Table of Elements"). Try to be as lenient as possible, but also be strict enough to ensure that the contestant is not simply guessing.
 
 Here is the question read so far:
 ```
@@ -67,12 +70,14 @@ Judge, what is your response? Remember to be lenient on typos"#).unwrap();
 });
 // Threshold for fuzzy matching
 // intentionally separate from its appearance in the other file
-const FUZZY_THRESHOLD: usize = 5;
+const FUZZY_THRESHOLD: usize = 10;
 pub async fn check_correct_answer(
     llm: &Box<dyn LLMProvider>,
+    // TODO: maybe input the whole question with a mark of where we left off
     question_so_far: &str,
     answer: &str,
-    answer_key: &str,
+    // (answer, answer_sanitized)
+    answer_key: &(String, String),
     // TODO: make this a bit smarter (like perhaps take into account of the prompt)
     prompted: bool,
 ) -> Result<Response, LLMError> {
@@ -81,14 +86,30 @@ pub async fn check_correct_answer(
     context.insert("question", question_so_far);
     context.insert("response", answer);
     context.insert("answer", answer_key);
-    let normalized_answer = ANSWER_RE.replace(&answer_key, "").into_owned();
+    let normalized_answer = ANSWER_RE.replace(&answer_key.1, "").into_owned();
     if levenshtein::distance(
         normalized_answer.to_lowercase().chars(),
         answer.to_lowercase().chars(),
     ) < FUZZY_THRESHOLD
     {
         return Ok(Response::Correct);
+    };
+
+    if let Some(normalized_answer) = EXTRACT_SUB
+        .captures(&answer_key.0.replace("<u>", "").replace("</u>", ""))
+        .and_then(|captures| captures.name("inner"))
+        .map(|inner| inner.as_str())
+    {
+        if levenshtein::distance(
+            normalized_answer.to_lowercase().chars(),
+            answer.to_lowercase().chars(),
+        ) < FUZZY_THRESHOLD
+        {
+            return Ok(Response::Correct);
+        }
     }
+    // TODO: add "matches a subword"?
+
     // TODO: add word2vec
     let messages = vec![
         ChatMessage::user()
@@ -108,7 +129,7 @@ pub async fn check_correct_answer(
     ];
 
     info!("Checking answer for question: {}", question_so_far);
-    info!("Answer: {}", answer_key);
+    info!("Answer: {:?}", answer_key);
     info!("Normalized Answer: {}", normalized_answer);
     info!("User answer: {}", answer);
     llm.chat(&messages)
