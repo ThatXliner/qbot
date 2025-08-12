@@ -345,7 +345,7 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
                         .0
                         .to_vec()
                         .into_iter()
-                        .map(|x| x.to_string().to_lowercase())
+                        .map(|x| x.to_lowercase())
                         .collect(),
                 ) {
                     return Ok((vec![key.to_string()], vec![result], vec![]));
