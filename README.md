@@ -1,25 +1,194 @@
-# Quiz Bowl bot
+# QBot - Quiz Bowl Discord Bot
 
-A Discord bot for quiz bowl question practice with advanced query language support.
+[![CI](https://github.com/ThatXliner/qbot/actions/workflows/ci.yml/badge.svg)](https://github.com/ThatXliner/qbot/actions/workflows/ci.yml)
 
-## Features
+A sophisticated Discord bot for quiz bowl question practice featuring an advanced query language for filtering questions by category. Built with Rust for high performance and reliability.
 
-- Random quiz bowl questions from QBReader
-- Advanced query language for filtering questions by category
-- Interactive question reading with buzzing functionality
-- Support for complex Boolean queries with proper operator precedence
+## 🎯 Features
 
-## Query Language
+- **Smart Question Filtering**: Advanced query language with Boolean operations for precise question selection
+- **Interactive Question Reading**: Real-time question reading with buzzing functionality
+- **AI-Powered Answer Checking**: Intelligent answer validation using LLM integration
+- **Multiple Question Support**: Read 1-10 questions in sequence with automatic transitions
+- **Comprehensive Categories**: Support for all major quiz bowl categories and subcategories
+- **Real-time Feedback**: Instant validation and prompting for incorrect answers
 
-The bot supports a powerful query language for filtering questions. See [QUERY_LANGUAGE.md](QUERY_LANGUAGE.md) for full documentation.
+## 🚀 Quick Start
 
-**Quick examples:**
-- `Biology` - All biology questions
-- `Science + History` - Science OR history questions
-- `Biology & Chemistry` - Questions tagged as both biology AND chemistry
-- `Science - Math` - Science questions excluding math
-- `(Biology + Chemistry) - Math` - Biology or chemistry, but no math
+### Prerequisites
 
-## Usage
+- [Rust](https://rustup.rs/) (latest stable version)
+- Discord bot token
+- (Optional) Ollama server for AI answer checking
 
-Use the `/tossup` command with an optional query parameter to get filtered questions.
+### Installation
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/ThatXliner/qbot.git
+   cd qbot
+   ```
+
+2. **Build the project**:
+   ```bash
+   cargo build --release
+   ```
+
+3. **Set up environment variables**:
+   ```bash
+   export DISCORD_TOKEN="your_discord_bot_token"
+   export OLLAMA_URL="http://127.0.0.1:11434"  # Optional, for AI features
+   ```
+
+4. **Run the bot**:
+   ```bash
+   cargo run --release
+   ```
+
+## 📖 Usage
+
+### Basic Commands
+
+- **`/tossup [query] [number]`** - Get quiz bowl questions
+  - `query` (optional): Filter using query language
+  - `number` (optional): Number of questions (1-10, default: 1)
+
+- **`/categories [category]`** - Browse available categories
+  - Without parameters: Shows all main categories
+  - With category name: Shows subcategories
+
+- **`/query <expression>`** - Test query language expressions
+
+- **`/help [topic]`** - Get help about commands or topics
+
+### Query Language Examples
+
+```bash
+/tossup query:Biology                    # Biology questions
+/tossup query:Science + History          # Science OR History questions  
+/tossup query:Biology & Chemistry        # Questions tagged as both
+/tossup query:Science - Math             # Science excluding Math
+/tossup query:(Biology + Chemistry) - Math number:3  # 3 questions, Biology or Chemistry but no Math
+```
+
+### Interactive Features
+
+- **Buzzing**: React with 🤚 during question reading to buzz in
+- **Answer Checking**: Submit answers for AI-powered validation
+- **Multiple Questions**: Automatically transitions between questions
+- **Real-time State**: Shows question progress and player states
+
+## 🔧 Development
+
+### Running Tests
+
+```bash
+# Run all tests (excluding integration tests that need external services)
+cargo test -- --skip judge_tests
+
+# Run specific test modules
+cargo test utils_tests
+cargo test qb_tests  
+cargo test query_tests
+
+# Run with coverage
+cargo tarpaulin --verbose --workspace --timeout 120 --skip-clean
+```
+
+### Code Quality
+
+```bash
+# Format code
+cargo fmt
+
+# Run linter
+cargo clippy --all-targets --all-features
+
+# Check formatting
+cargo fmt --all -- --check
+```
+
+### Development Dependencies
+
+The project uses:
+- **Discord Integration**: `poise` and `serenity` for Discord bot functionality
+- **HTTP Client**: `reqwest` for QBReader API communication
+- **Query Processing**: Custom recursive descent parser
+- **AI Integration**: `llm` crate with Ollama backend support
+- **Async Runtime**: `tokio` for async/await support
+
+### Project Structure
+
+```
+src/
+├── main.rs           # Bot setup and Discord commands
+├── query.rs          # Query language parser and processor
+├── qb.rs            # QBReader API client and data structures  
+├── read.rs          # Interactive question reading logic
+├── check.rs         # AI-powered answer validation
+├── utils.rs         # Utility functions for text processing
+└── *_tests.rs       # Comprehensive unit tests
+```
+
+## 🎮 Interactive Question Reading
+
+When a question is being read:
+
+1. **Question Progression**: Questions are read word-by-word in chunks
+2. **Buzzing**: React with 🤚 to buzz in and attempt an answer
+3. **Answer Submission**: Type your answer after buzzing
+4. **AI Validation**: Answers are checked against the correct answer using LLM
+5. **Feedback**: Get immediate feedback on correctness with explanations
+
+## 📊 Categories
+
+### Main Categories
+- Literature (American, British, European, World)
+- History (American, Ancient, European, World)
+- Science (Biology, Chemistry, Physics, Math, Computer Science)
+- Fine Arts (Visual, Auditory, Architecture, Film)
+- Religion, Mythology, Philosophy
+- Social Science, Current Events, Geography
+- Other Academic, Pop Culture
+
+### Query Language Operators
+
+| Operator | Precedence | Description | Example |
+|----------|------------|-------------|---------|
+| `()`     | Highest    | Grouping    | `(Science + History)` |
+| `-`      | High       | Exclusion   | `Science - Math` |
+| `&`      | Medium     | Intersection| `Biology & Chemistry` |
+| `+`      | Low        | Union       | `Science + History` |
+
+## 🤝 Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Quick contribution checklist:
+- [ ] Fork the repository
+- [ ] Create a feature branch
+- [ ] Add tests for new functionality
+- [ ] Ensure all tests pass
+- [ ] Follow Rust formatting conventions
+- [ ] Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [QBReader](https://www.qbreader.org/) for providing the quiz bowl question database
+- The Rust community for excellent crates and tooling
+- Quiz bowl community for feedback and feature requests
+
+## 🔗 Links
+
+- [QBReader API Documentation](https://www.qbreader.org/api-docs)
+- [Query Language Documentation](QUERY_LANGUAGE.md)
+- [Discord Developer Portal](https://discord.com/developers/applications)
+- [Ollama Installation Guide](https://ollama.ai/)
+
+---
+
+**Made with ❤️ for the quiz bowl community**

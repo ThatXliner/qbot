@@ -115,12 +115,12 @@ mod tests {
     #[test]
     fn science_has_expected_subcategories() {
         let (subcategories, alternate_subcategories) = CATEGORIES.get("Science").unwrap();
-        
+
         // Test regular subcategories
         assert!(subcategories.contains(&"Biology"));
         assert!(subcategories.contains(&"Chemistry"));
         assert!(subcategories.contains(&"Physics"));
-        
+
         // Test alternate subcategories
         assert!(alternate_subcategories.contains(&"Math"));
         assert!(alternate_subcategories.contains(&"Computer Science"));
@@ -130,9 +130,10 @@ mod tests {
     fn case_insensitive_category_lookup() {
         // This simulates the case-insensitive search in the categories command
         let search_term = "science";
-        let found = CATEGORIES.keys()
+        let found = CATEGORIES
+            .keys()
             .find(|&key| key.to_lowercase() == search_term.to_lowercase());
-        
+
         assert!(found.is_some());
         assert_eq!(found.unwrap(), &"Science");
     }
