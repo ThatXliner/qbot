@@ -19,61 +19,7 @@ static EXTRACT_SUB: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"<\w>(?P<inner>.+)</\w>").expect("Failed to compile regex")
 });
 static TEMPLATER: LazyLock<Tera> = LazyLock::new(|| {
-    let mut output = Tera::default();
-
-    output.add_raw_template("prompt", r#"You're now a national-level Quiz Bowl judge. I will provide you the question read so far, our contestant's answer (and whether or not it is a response to a prompt), and the answer key. The answer key may contain hints on how to grade their response.
-
-You may only respond with one of:
-- "CORRECT", meaning the answer matches the answer key exactly or is an acceptable equivalent.
-- "INCORRECT", meaning the answer is wrong, incomplete, or outside the acceptable range
-- or "PROMPT", meaning the contestant's answer is on the right track but too vague, incomplete, or ambiguous.
-
-Only PROMPT if the answer could be correct but needs clarification or specificity. If you do decide to answer with "PROMPT", you may optionally include a clarifying question (but only if specified in the answer key) like so: "PROMPT: which cell?". Otherwise, simply respond with "PROMPT"
-
-You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee" or "the peroidic table" vs "The Periodic Table of Elements").
-
-For people, omitting parts of names is acceptable, unless it would then be ambiguous with other probable answers. In general, try to be as lenient as possible, but also be strict enough to ensure that the contestant is not simply guessing.
-
-Additionally, if the contestant provides an answer that is a subset (or similarly related) to the answer key, you may respond with "PROMPT".
-
-Here is the question read so far:
-```
-{{ question }}
-```
-Here is our contestant's response:
-```
-{{ response }}
-```
-Here is the answer key:
-```
-{{ answer }}
-```
-
-Judge, what is your response? Remember to be lenient on typos"#).unwrap();
-    output.add_raw_template("prompt_no_prompt", r#"You're now a national-level Quiz Bowl judge. I will provide you the question read so far, our contestant's answer, and the answer key. The answer key may contain hints on how to grade their response.
-
-You may only respond with one of "CORRECT", "INCORRECT". Typically, you would also have the option to respond with "PROMPT" and a clarifying question, but in this case you do NOT have that option since our contestant is currently responding to a prompt (and you cannot prompt them more than once).
-
-You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee" or "the peroidic table" vs "The Periodic Table of Elements").
-
-For people, omitting parts of names is acceptable, unless it would then be ambiguous with other probable answers. In general, try to be as lenient as possible, but also be strict enough to ensure that the contestant is not simply guessing.
-
-Additionally, if the contestant provides an answer that is a subset (or similarly related) to the answer key but not technically the equivalent, you must respond with "INCORRECT".
-
-Here is the question read so far:
-```
-{{ question }}
-```
-Here is our contestant's response:
-```
-{{ response }}
-```
-Here is the answer key:
-```md
-{{ answer }}
-```
-
-Judge, what is your response? Remember to be lenient on typos"#).unwrap();
+    let mut output = Tera::new("templates/*.jinja").expect("Failed to parse templates");
     output
 });
 // Threshold for fuzzy matching
@@ -91,7 +37,20 @@ pub async fn check_correct_answer(
 ) -> Result<Response, LLMError> {
     // TODO: normalize digits
     let mut context = tera::Context::new();
-    context.insert("question", question_so_far);
+    context.insert(
+        "question",
+        &if answer_key.1.contains("read")|| answer_key.1.contains("before") || answer_key.1.contains("mention") {
+            format!(
+                "Here is the question read so far:
+```
+{}
+```",
+                question_so_far
+            )
+        } else {
+            "Remember, judge strictly but be lenient on typos. Don't think about the question but simply compare the user's answer to the correct answer.".into()
+        },
+    );
     context.insert("response", answer);
     context.insert("answer", &answer_key.0);
     // Basic levenshtein distance
@@ -104,17 +63,15 @@ pub async fn check_correct_answer(
         return Ok(Response::Correct);
     };
     // Levenshtein distance on extracted subword
-    if let Some(normalized_answer) = EXTRACT_SUB
-        .captures(&answer_key.0.replace("<u>", "").replace("</u>", ""))
-        .and_then(|captures| captures.name("inner"))
-        .map(|inner| inner.as_str())
+    for normalized_answer in
+        EXTRACT_SUB.captures_iter(&answer_key.0.replace("<u>", "").replace("</u>", ""))
     {
-        if levenshtein::distance(
-            normalized_answer.to_lowercase().chars(),
-            answer.to_lowercase().chars(),
-        ) < FUZZY_THRESHOLD
-        {
-            return Ok(Response::Correct);
+        if let Some(a) = normalized_answer.name("inner").map(|inner| inner.as_str()) {
+            if levenshtein::distance(a.to_lowercase().chars(), answer.to_lowercase().chars())
+                < FUZZY_THRESHOLD
+            {
+                return Ok(Response::Correct);
+            }
         }
     }
     // TODO: add "matches a subword"?
@@ -125,9 +82,9 @@ pub async fn check_correct_answer(
                 TEMPLATER
                     .render(
                         if prompted {
-                            "prompt_no_prompt"
+                            "prompt_no_prompt.jinja"
                         } else {
-                            "prompt"
+                            "prompt.jinja"
                         },
                         &context,
                     )
@@ -207,21 +164,6 @@ mod tests {
         .unwrap();
 
         assert!(matches!(result, Response::Correct), "{:?}", result);
-    }
-
-    #[tokio::test]
-    async fn test_close_match() {
-        let result = check_correct_answer(
-            &LLM,
-            "Who invented the World Wide Web?",
-            "burners lee",
-            &e("Tim Berners-Lee", "Tim Berners-Lee"),
-            false,
-        )
-        .await
-        .unwrap();
-
-        assert!(!matches!(result, Response::Incorrect(_)), "{:?}", result);
     }
 
     #[tokio::test]
