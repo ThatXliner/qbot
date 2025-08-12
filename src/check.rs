@@ -42,7 +42,7 @@ Here is the answer key:
 {{ answer }}
 ```
 
-Judge, what is your response?"#).unwrap();
+Judge, what is your response? Remember to be lenient on typos"#).unwrap();
     output.add_raw_template("prompt_no_prompt", r#"You're now a national-level Quiz Bowl judge. I will provide you the question read so far, our contestant's answer, and the answer key. The answer key may contain hints on how to grade their response.
     
 You may only respond with one of "CORRECT", "INCORRECT". Typically, you would also have the option to respond with "PROMPT" and a clarifying question, but in this case you do NOT have that option since our contestant is currently responding to a prompt (and you cannot prompt them more than once).
@@ -62,7 +62,7 @@ Here is the answer key:
 {{ answer }}
 ```
 
-Judge, what is your response?"#).unwrap();
+Judge, what is your response? Remember to be lenient on typos"#).unwrap();
     output
 });
 

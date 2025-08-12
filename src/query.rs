@@ -291,7 +291,7 @@ fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
         Err(QueryError::UnexpectedEOF)
     }
 }
-const FUZZY_THRESHOLD: usize = 3;
+const FUZZY_THRESHOLD: usize = 5;
 
 fn match_against(
     comparator: &levenshtein::BatchComparator<char>,
