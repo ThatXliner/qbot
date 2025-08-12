@@ -1,7 +1,9 @@
+use llm::LLMProvider;
+use llm::builder::{LLMBackend, LLMBuilder};
 use poise::{CreateReply, send_reply, serenity_prelude as serenity};
 use tracing::debug;
 
-use crate::qb::random_tossup;
+use crate::qb::{Tossup, random_tossup};
 use crate::query::{ApiQuery, CATEGORIES, QueryError, parse_query};
 use crate::read::{event_handler, read_question};
 use std::collections::{HashMap, HashSet};
@@ -10,12 +12,15 @@ use std::sync::Arc;
 use serenity::all::{ChannelId, UserId};
 use tokio::sync::{Mutex, watch};
 
+// #[cfg(test)]
+// mod buzzing_test;
+mod check;
 mod qb;
 mod query;
-mod read;
-
 #[cfg(test)]
-mod buzzing_test;
+mod query_tests;
+mod read;
+mod utils;
 
 // https://mermaid.live/edit#pako:eNplkMtugzAQRX_FmmUFCNuYOF5UaummGxZdtu7CAocgBTsypg8Q_14eKY2aWc09d-7YmgEKW2oQ0Hrl9VOtKqea8INIg6ZaIJKQW_Rg2k_tJCDVonx13-7eURjeoxetytpUK7yIxXjs-n6lc7egSzS_DW4jmXVOF_4ffTbFNd_k7aLsypi-CAFUri5BeNfpABrtGjVLGOZxCf6oGy1BTG2pD6o7eQnSjFPsrMyrtc1v0tmuOoI4qFM7qe5c_h1so06bUrvMdsaDIMmeL1tADPAFAic0wozSNI055-mOBPANIqURxyThnDG2jzkZA-iXV-OI71gcx5ikmFNGcTL-ABL-f_0
 #[derive(Debug, Clone)]
@@ -23,19 +28,39 @@ pub enum QuestionState {
     Reading,
     // Buzzed (user_id, timestamp)
     Buzzed(UserId, i64),
+    // Prompt (user_id, prompt, timestamp)
+    Prompt(UserId, String, i64),
     Invalid(UserId),
     Incorrect(UserId),
     Correct,
+    Judging,
     // OPTIMIZE: Idle state rather than deleting it from the map?
     // I'll need to figure out which is more performant
 }
-#[derive(Debug)]
+
+/// User data, which is stored and accessible in all command invocations
 pub struct Data {
     pub reqwest: reqwest::Client,
     // (channel_id, (question_state, power?, blocklist, state_change_notifier))
-    pub reading_states:
-        Arc<Mutex<HashMap<ChannelId, (QuestionState, bool, HashSet<UserId>, watch::Sender<()>)>>>,
-} // User data, which is stored and accessible in all command invocations
+    pub reading_states: Arc<
+        Mutex<
+            HashMap<
+                ChannelId,
+                (
+                    QuestionState,
+                    // shoot, i need to remove this... but it's gonna be a pain to change...
+                    bool,
+                    HashSet<UserId>,
+                    watch::Sender<()>,
+                    Tossup,
+                    String,
+                ),
+            >,
+        >,
+    >,
+    pub llm: Box<dyn LLMProvider>,
+}
+
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Context<'a> = poise::Context<'a, Data, Error>;
 
@@ -119,6 +144,7 @@ async fn categories(
 async fn main() {
     tracing_subscriber::fmt::init();
     let token = std::env::var("DISCORD_TOKEN").expect("missing DISCORD_TOKEN");
+    let ollama_base_url = std::env::var("OLLAMA_URL").unwrap_or("http://127.0.0.1:11434".into());
     let intents =
         serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT;
 
@@ -136,6 +162,15 @@ async fn main() {
                 Ok(Data {
                     reqwest: reqwest::Client::new(),
                     reading_states: Arc::new(Mutex::new(HashMap::new())),
+                    llm: LLMBuilder::new()
+                        .backend(LLMBackend::Ollama) // Use Ollama as the LLM backend
+                        .base_url(ollama_base_url) // Set the Ollama server URL
+                        .model("qwen3:0.6b")
+                        .max_tokens(1000) // Set maximum response length
+                        .temperature(0.7) // Control response randomness (0.0-1.0)
+                        .stream(false) // Disable streaming responses
+                        .build()
+                        .expect("Failed to build LLM (Ollama)"),
                 })
             })
         })

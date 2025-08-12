@@ -1,28 +1,28 @@
 /// Query language for filtering quiz bowl questions
-/// 
+///
 /// The query language supports filtering questions by categories and subcategories using
 /// Boolean operators with proper precedence and associativity.
-/// 
+///
 /// # Supported Operators (in order of precedence, highest first):
-/// - Parentheses `()` - grouping expressions  
+/// - Parentheses `()` - grouping expressions
 /// - Minus `-` - subtraction/exclusion (left-associative)
 /// - And `&` - intersection (left-associative)
-/// - Or `+` - union (left-associative) 
-/// 
+/// - Or `+` - union (left-associative)
+///
 /// # Category Matching:
 /// - Categories are matched case-insensitively with automatic capitalization
 /// - Multi-word categories are supported (e.g., "American Literature")
 /// - Subcategories within the same main category can be combined
 /// - Alternate subcategories are handled automatically
-/// 
+///
 /// # Examples:
 /// - `Biology` - All biology questions
-/// - `Science + History` - All science OR history questions  
+/// - `Science + History` - All science OR history questions
 /// - `Biology & Chemistry` - All questions that are both biology AND chemistry
 /// - `Science - Math` - All science questions EXCEPT math questions
 /// - `(Biology + Chemistry) - Math` - Biology or chemistry questions, but exclude math
 /// - `Science & (Biology + Chemistry)` - Science questions that are biology or chemistry
-/// 
+///
 /// # Error Handling:
 /// - Invalid categories are rejected with helpful error messages
 /// - Impossible queries (e.g., conflicting categories) are detected
@@ -30,11 +30,12 @@
 ///
 /// I need to fix subtraction though; for how it's currently implemented, it's fundamentaly broken
 use phf::phf_map;
-use tracing::debug;
-
+use rapidfuzz::distance::levenshtein;
 use std::{collections::VecDeque, fmt};
+use tracing::{debug, info};
 
 /// category -> (subcategories, alternate subcategories)
+/// TODO: aliases
 pub static CATEGORIES: phf::Map<&'static str, (&'static [&'static str], &'static [&'static str])> = phf_map! {
     "Literature" => (&[
         "American Literature", "British Literature", "Classical Literature",
@@ -71,11 +72,11 @@ pub static CATEGORIES: phf::Map<&'static str, (&'static [&'static str], &'static
 };
 
 /// Abstract Syntax Tree for the query language
-/// 
+///
 /// Represents the parsed structure of a query with proper operator precedence.
 /// The tree is evaluated bottom-up to produce category filters for the API.
 #[derive(Debug, Clone)]
-enum Expr {
+pub enum Expr {
     /// A category or subcategory name (e.g., "Biology", "American Literature")
     Token(String),
     /// Logical AND - intersection of two expressions (higher precedence than OR)
@@ -98,7 +99,7 @@ impl fmt::Display for Expr {
 }
 
 /// Result after validation, ready for API consumption
-/// 
+///
 /// This structure maps the logical query to the specific API parameters
 /// needed by the QBReader API for filtering questions.
 #[derive(Debug, Default, PartialEq)]
@@ -110,16 +111,7 @@ pub struct ApiQuery {
     /// Alternate subcategories to include (e.g., ["Math", "Computer Science"])
     pub alternate_subcategories: Vec<String>,
 }
-impl ApiQuery {
-    pub fn from(raw: (Vec<String>, Vec<String>, Vec<String>)) -> Self {
-        let (categories, subcategories, alternate_subcategories) = raw;
-        Self {
-            categories,
-            subcategories,
-            alternate_subcategories,
-        }
-    }
-}
+
 /// Errors that can occur during query parsing and validation
 #[derive(Debug)]
 pub enum QueryError {
@@ -128,7 +120,7 @@ pub enum QueryError {
     UnexpectedToken(String),
     /// Input ended unexpectedly (e.g., unclosed parentheses)
     UnexpectedEOF,
-    // Validation errors  
+    // Validation errors
     /// Category or subcategory name not found in the known categories
     InvalidCategory(String),
     /// Query results in impossible constraints (e.g., "Biology & History")
@@ -136,15 +128,15 @@ pub enum QueryError {
 }
 
 /// Tokenize input string into operators and category names
-/// 
+///
 /// Handles multi-word categories by preserving spaces until operators are encountered.
 /// Operators: &, +, -, (, )
-/// 
+///
 /// # Examples:
 /// - `"Biology + Chemistry"` → `["Biology", "+", "Chemistry"]`
 /// - `"American Literature & History"` → `["American", "Literature", "&", "History"]`
 #[inline]
-fn tokenize(input: &str) -> VecDeque<String> {
+pub fn tokenize(input: &str) -> VecDeque<String> {
     let mut tokens = VecDeque::new();
     let mut buf = String::new();
     for c in input.chars() {
@@ -172,10 +164,10 @@ fn tokenize(input: &str) -> VecDeque<String> {
 }
 
 /// Parse a complete expression and ensure all tokens are consumed
-/// 
+///
 /// This is the main entry point for parsing. It expects the entire input
 /// to be a valid expression with no leftover tokens.
-fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
+pub fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     let result = parse_or(tokens);
     if !tokens.is_empty() {
         Err(QueryError::UnexpectedToken(format!(
@@ -188,7 +180,7 @@ fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
 }
 
 /// Parse a sub-expression without requiring all tokens to be consumed
-/// 
+///
 /// Used for parsing expressions inside parentheses where there may be
 /// more tokens after the closing parenthesis.
 fn parse_subexpr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
@@ -196,7 +188,7 @@ fn parse_subexpr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
 }
 
 /// Parse OR expressions (lowest precedence)
-/// 
+///
 /// Handles left-associative OR operations. Multiple OR operators
 /// are parsed left-to-right: `A + B + C` becomes `(A + B) + C`
 fn parse_or(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
@@ -215,7 +207,7 @@ fn parse_or(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
 }
 
 /// Parse AND expressions (medium precedence)
-/// 
+///
 /// Handles left-associative AND operations. Multiple AND operators
 /// are parsed left-to-right: `A & B & C` becomes `(A & B) & C`
 fn parse_and(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
@@ -234,7 +226,7 @@ fn parse_and(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
 }
 
 /// Parse NOT/minus expressions (highest precedence after parentheses)
-/// 
+///
 /// Handles left-associative subtraction operations. Multiple minus operators
 /// are parsed left-to-right: `A - B - C` becomes `(A - B) - C`
 fn parse_not(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
@@ -253,10 +245,10 @@ fn parse_not(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
 }
 
 /// Parse primary expressions (categories, subcategories, and parenthesized expressions)
-/// 
+///
 /// Handles:
 /// - Category/subcategory names (including multi-word like "American Literature")
-/// - Parenthesized sub-expressions  
+/// - Parenthesized sub-expressions
 /// - Error detection for unexpected operators
 fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     if let Some(tok) = tokens.pop_front() {
@@ -299,23 +291,47 @@ fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
         Err(QueryError::UnexpectedEOF)
     }
 }
+const FUZZY_THRESHOLD: usize = 5;
 
+fn match_against(
+    comparator: &levenshtein::BatchComparator<char>,
+    b: &Vec<String>,
+) -> Option<String> {
+    let mut distances: Vec<(String, usize)> = b
+        .into_iter()
+        .map(|item| (item.clone(), comparator.distance(item.chars())))
+        .collect();
+
+    distances.sort_by_key(|(_, dist)| *dist);
+
+    let close_matches: Vec<String> = distances
+        .iter()
+        .filter(|(_, dist)| *dist < FUZZY_THRESHOLD)
+        .map(|(item, _)| item.clone())
+        .collect();
+
+    if close_matches.len() == 1 {
+        Some(close_matches[0].clone())
+    } else {
+        None
+    }
+}
+/// Validate recursively
 /// Validate and convert an expression tree to API query parameters
-/// 
+///
 /// Recursively processes the AST and maps category/subcategory names to the
 /// appropriate API parameters. Handles the complex logic of:
 /// - Category name resolution and validation
-/// - Operator semantics (AND, OR, NOT) 
+/// - Operator semantics (AND, OR, NOT)
 /// - Subcategory and alternate subcategory mapping
 /// - Error detection for impossible queries
 fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), QueryError> {
     match expr {
         Expr::Token(t) => {
-            // TODO: implement fuzzy matching for category names
-            let norm = capitalize_token(t);
+            let comparator = levenshtein::BatchComparator::new(t.to_lowercase().chars());
             for (key, value) in CATEGORIES.entries() {
                 // Check if it's a main category (e.g., "Science")
-                if *key == norm {
+                if comparator.distance(key.to_lowercase().chars()) < FUZZY_THRESHOLD {
                     return Ok((
                         vec![key.to_string()],
                         value.0.to_vec().iter().map(|s| s.to_string()).collect(),
@@ -323,14 +339,30 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
                     ));
                 }
                 // Check if it's a regular subcategory (e.g., "Biology" -> Science/Biology)
-                if value.0.contains(&norm.as_str()) {
-                    return Ok((vec![key.to_string()], vec![norm], vec![]));
+                if let Some(result) = match_against(
+                    &comparator,
+                    &value
+                        .0
+                        .to_vec()
+                        .into_iter()
+                        .map(|x| x.to_lowercase())
+                        .collect(),
+                ) {
+                    return Ok((vec![key.to_string()], vec![result], vec![]));
                 }
                 // Check if it's an alternate subcategory (e.g., "Math" -> Science/Other Science/Math)
-                if value.1.contains(&norm.as_str()) {
+                if let Some(result) = match_against(
+                    &comparator,
+                    &value
+                        .1
+                        .to_vec()
+                        .into_iter()
+                        .map(|x| x.to_string().to_lowercase())
+                        .collect(),
+                ) {
                     let misc_category = format!("Other {}", key);
                     assert!(value.0.contains(&misc_category.as_str()));
-                    return Ok((vec![key.to_string()], vec![misc_category], vec![norm]));
+                    return Ok((vec![key.to_string()], vec![misc_category], vec![result]));
                 }
             }
             Err(QueryError::InvalidCategory(t.clone()))
@@ -343,12 +375,12 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
             if cc.is_empty() {
                 return Err(QueryError::ImpossibleBranch(format!("{} & {}", a, b)));
             }
-            
+
             // For AND operation: prefer more specific constraints when one side is general
             // and the other is specific. When both are specific, combine them.
             let left_has_specifics = !asub.is_empty() || !aalt.is_empty();
             let right_has_specifics = !bsub.is_empty() || !balt.is_empty();
-            
+
             let (result_subs, result_alts) = match (left_has_specifics, right_has_specifics) {
                 (false, true) => {
                     // Left is general (full category), right is specific - use right
@@ -364,12 +396,12 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
                     combined_subs.extend(bsub);
                     combined_subs.sort();
                     combined_subs.dedup();
-                    
+
                     let mut combined_alts = aalt;
                     combined_alts.extend(balt);
                     combined_alts.sort();
                     combined_alts.dedup();
-                    
+
                     (combined_subs, combined_alts)
                 }
                 (false, false) => {
@@ -377,7 +409,7 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
                     (vec![], vec![])
                 }
             };
-            
+
             Ok((cc, result_subs, result_alts))
         }
         Expr::Or(a, b) => {
@@ -403,10 +435,10 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
         Expr::Not(a, b) => {
             let (mut ac, mut asub, mut aalt) = validate(a)?;
             let (bc, bsub, balt) = validate(b)?;
-            
+
             // Check if we're subtracting within the same category
             let common_categories: Vec<_> = ac.iter().filter(|x| bc.contains(x)).cloned().collect();
-            
+
             if !common_categories.is_empty() {
                 // We're in the same category, so subtract subcategories and alternates
                 asub.retain(|x| !bsub.contains(x));
@@ -421,7 +453,7 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
                     return Err(QueryError::ImpossibleBranch(format!("{} - {}", a, b)));
                 }
             }
-            
+
             // If we have no specific subcategories left but still have categories,
             // we need to include all subcategories of remaining categories
             if ac.is_empty() && asub.is_empty() && aalt.is_empty() {
@@ -433,10 +465,10 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
 }
 
 /// Convert a token to proper capitalization for category matching
-/// 
+///
 /// Each word is capitalized (first letter uppercase, rest lowercase)
 /// to match the category naming convention in CATEGORIES.
-/// 
+///
 /// # Examples:
 /// - `"biology"` → `"Biology"`
 /// - `"american literature"` → `"American Literature"`
@@ -456,7 +488,7 @@ fn capitalize_token(token: &str) -> String {
 }
 
 /// Build the final API query from a validated expression tree
-/// 
+///
 /// This is the final step that converts the validated expression results
 /// into the ApiQuery structure used by the QBReader API.
 fn build_api_query(expr: &Expr) -> Result<ApiQuery, QueryError> {
@@ -473,23 +505,23 @@ fn build_api_query(expr: &Expr) -> Result<ApiQuery, QueryError> {
 }
 
 /// Parse a query string into API parameters
-/// 
+///
 /// This is the main public interface for the query language. It takes a query string
 /// and returns either an ApiQuery ready for the QBReader API, or a QueryError
 /// describing what went wrong.
-/// 
+///
 /// # Arguments
 /// * `query_str` - The query string to parse (e.g., "Biology + Chemistry - Math")
-/// 
+///
 /// # Returns
 /// * `Ok(ApiQuery)` - Successfully parsed query ready for API use
 /// * `Err(QueryError)` - Parsing or validation error with details
-/// 
+///
 /// # Examples
 /// ```rust
 /// let result = parse_query("Biology + Chemistry");
 /// assert!(result.is_ok());
-/// 
+///
 /// let result = parse_query("InvalidCategory");
 /// assert!(result.is_err());
 /// ```
@@ -614,7 +646,10 @@ mod tests {
         assert!(!r.alternate_subcategories.contains(&"Math".to_string()));
         // Should still contain other Science subcategories and alternates
         assert!(r.subcategories.contains(&"Biology".to_string()));
-        assert!(r.alternate_subcategories.contains(&"Computer Science".to_string()));
+        assert!(
+            r.alternate_subcategories
+                .contains(&"Computer Science".to_string())
+        );
     }
 
     #[test]
@@ -651,7 +686,10 @@ mod tests {
         let r = q("Science - Math - Computer Science").unwrap();
         assert_eq!(r.categories, vec!["Science"]);
         assert!(!r.alternate_subcategories.contains(&"Math".to_string()));
-        assert!(!r.alternate_subcategories.contains(&"Computer Science".to_string()));
+        assert!(
+            !r.alternate_subcategories
+                .contains(&"Computer Science".to_string())
+        );
         assert!(r.alternate_subcategories.contains(&"Astronomy".to_string()));
     }
 }
