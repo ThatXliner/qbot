@@ -18,8 +18,8 @@ static ANSWER_RE: LazyLock<regex::Regex> =
 static TEMPLATER: LazyLock<Tera> = LazyLock::new(|| {
     let mut output = Tera::default();
 
-    output.add_raw_template("prompt", r#"You're now a national-level Quiz Bowl judge. I will provide you the question read so far, our contestant's answer (and whether or not it is a response to a prompt), and the answer key. The answer key may contain hints on how to grade their response. 
-    
+    output.add_raw_template("prompt", r#"You're now a national-level Quiz Bowl judge. I will provide you the question read so far, our contestant's answer (and whether or not it is a response to a prompt), and the answer key. The answer key may contain hints on how to grade their response.
+
 You may only respond with one of:
 - "CORRECT", meaning the answer matches the answer key exactly or is an acceptable equivalent.
 - "INCORRECT", meaning the answer is wrong, incomplete, or outside the acceptable range
@@ -44,7 +44,7 @@ Here is the answer key:
 
 Judge, what is your response? Remember to be lenient on typos"#).unwrap();
     output.add_raw_template("prompt_no_prompt", r#"You're now a national-level Quiz Bowl judge. I will provide you the question read so far, our contestant's answer, and the answer key. The answer key may contain hints on how to grade their response.
-    
+
 You may only respond with one of "CORRECT", "INCORRECT". Typically, you would also have the option to respond with "PROMPT" and a clarifying question, but in this case you do NOT have that option since our contestant is currently responding to a prompt (and you cannot prompt them more than once).
 
 You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee" or "the peroidic table" vs "The Periodic Table of Elements")

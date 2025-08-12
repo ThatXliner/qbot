@@ -291,7 +291,7 @@ fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
         Err(QueryError::UnexpectedEOF)
     }
 }
-const FUZZY_THRESHOLD: usize = 5;
+const FUZZY_THRESHOLD: usize = 3;
 
 fn match_against(
     comparator: &levenshtein::BatchComparator<char>,
@@ -299,7 +299,12 @@ fn match_against(
 ) -> Option<String> {
     let mut distances: Vec<(String, usize)> = b
         .into_iter()
-        .map(|item| (item.clone(), comparator.distance(item.chars())))
+        .map(|item| {
+            (
+                item.clone(),
+                comparator.distance(item.to_lowercase().chars()),
+            )
+        })
         .collect();
 
     distances.sort_by_key(|(_, dist)| *dist);
@@ -334,31 +339,21 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
                 if comparator.distance(key.to_lowercase().chars()) < FUZZY_THRESHOLD {
                     return Ok((
                         vec![key.to_string()],
-                        value.0.to_vec().iter().map(|s| s.to_string()).collect(),
-                        value.1.to_vec().iter().map(|s| s.to_string()).collect(),
+                        value.0.into_iter().map(|s| s.to_string()).collect(),
+                        value.1.into_iter().map(|s| s.to_string()).collect(),
                     ));
                 }
                 // Check if it's a regular subcategory (e.g., "Biology" -> Science/Biology)
                 if let Some(result) = match_against(
                     &comparator,
-                    &value
-                        .0
-                        .to_vec()
-                        .into_iter()
-                        .map(|x| x.to_lowercase())
-                        .collect(),
+                    &value.0.into_iter().map(|x| x.to_string()).collect(),
                 ) {
                     return Ok((vec![key.to_string()], vec![result], vec![]));
                 }
                 // Check if it's an alternate subcategory (e.g., "Math" -> Science/Other Science/Math)
                 if let Some(result) = match_against(
                     &comparator,
-                    &value
-                        .1
-                        .to_vec()
-                        .into_iter()
-                        .map(|x| x.to_string().to_lowercase())
-                        .collect(),
+                    &value.1.into_iter().map(|x| x.to_string()).collect(),
                 ) {
                     let misc_category = format!("Other {}", key);
                     assert!(value.0.contains(&misc_category.as_str()));
