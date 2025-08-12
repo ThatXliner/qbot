@@ -15,6 +15,8 @@ use tokio::sync::{Mutex, watch};
 // #[cfg(test)]
 // mod buzzing_test;
 mod check;
+#[cfg(test)]
+mod judge_tests;
 mod qb;
 mod query;
 #[cfg(test)]
@@ -68,7 +70,7 @@ pub type Context<'a> = poise::Context<'a, Data, Error>;
 async fn tossup(
     ctx: Context<'_>,
     #[description = "Query for selecting the category"] query: Option<String>,
-    #[description = "Number of questions to read (1-10)"] 
+    #[description = "Number of questions to read (1-10)"]
     #[min = 1]
     #[max = 10]
     number: Option<u32>,
@@ -89,14 +91,14 @@ async fn tossup(
         .await?;
         return Ok(());
     }
-    
+
     let number_of_questions = number.unwrap_or(1);
-    
+
     let tossup = if let Some(query) = query {
         let mut parsed_results = parse_query(&query);
         debug!("Query requested: {:?}", query);
         debug!("Parsed query results: {:?}", parsed_results);
-        
+
         match parsed_results {
             Ok(ref mut api_params) => {
                 // Set the number of questions to fetch
@@ -134,12 +136,12 @@ async fn tossup(
         let get_tossup = random_tossup(reqwest, &api_query).await?;
         get_tossup.tossups
     };
-    
+
     if tossup.is_empty() {
         ctx.say("No tossups found").await?;
         return Ok(());
     }
-    
+
     // Read questions one by one
     for (index, question) in tossup.iter().enumerate() {
         if index > 0 {
@@ -153,15 +155,15 @@ async fn tossup(
             {
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
-            
+
             // Announce next question
             ctx.say("🔄 **Next question**").await?;
             // Small delay before starting next question
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
-        
+
         read_question(&ctx, vec![question.clone()]).await?;
-        
+
         // If this is not the last question, wait for it to complete
         if index < tossup.len() - 1 {
             // Wait for the question reading to complete
@@ -176,7 +178,7 @@ async fn tossup(
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -188,14 +190,15 @@ async fn categories(
 ) -> Result<(), Error> {
     if let Some(category) = parent_category {
         // Search for the category case-insensitively
-        let category_key = CATEGORIES.keys()
+        let category_key = CATEGORIES
+            .keys()
             .find(|&key| key.to_lowercase() == category.to_lowercase());
-        
+
         if let Some(key) = category_key {
             let (subcategories, alternate_subcategories) = CATEGORIES.get(key).unwrap();
-            
+
             let mut response = format!("**{}**\n", key);
-            
+
             if !subcategories.is_empty() {
                 response.push_str("**Subcategories:**\n");
                 for subcat in subcategories.iter() {
@@ -203,41 +206,47 @@ async fn categories(
                 }
                 response.push('\n');
             }
-            
+
             if !alternate_subcategories.is_empty() {
                 response.push_str("**Alternate Subcategories:**\n");
                 for alt_subcat in alternate_subcategories.iter() {
                     response.push_str(&format!("• {}\n", alt_subcat));
                 }
             }
-            
+
             if subcategories.is_empty() && alternate_subcategories.is_empty() {
                 response.push_str("*No subcategories available for this category.*");
             }
-            
+
             ctx.say(response).await?;
         } else {
-            ctx.say(format!("❌ Category '{}' not found. Use `/categories` to see all available categories.", category)).await?;
+            ctx.say(format!(
+                "❌ Category '{}' not found. Use `/categories` to see all available categories.",
+                category
+            ))
+            .await?;
         }
     } else {
         let mut response = String::from("**Available Quiz Bowl Categories:**\n\n");
-        
+
         let mut sorted_categories: Vec<_> = CATEGORIES.keys().collect();
         sorted_categories.sort();
-        
+
         for category in sorted_categories {
             let (subcategories, alternate_subcategories) = CATEGORIES.get(category).unwrap();
             let total_subcats = subcategories.len() + alternate_subcategories.len();
-            
+
             response.push_str(&format!("**{}**", category));
             if total_subcats > 0 {
                 response.push_str(&format!(" ({} subcategories)", total_subcats));
             }
             response.push('\n');
         }
-        
-        response.push_str("\n💡 Use `/categories <category_name>` to see subcategories for a specific category.");
-        
+
+        response.push_str(
+            "\n💡 Use `/categories <category_name>` to see subcategories for a specific category.",
+        );
+
         ctx.say(response).await?;
     }
     Ok(())
@@ -321,7 +330,7 @@ async fn show_general_help(ctx: Context<'_>) -> Result<(), Error> {
         • `/help commands` - Detailed command reference\n\
         • `/help tossup` - Learn about the tossup command options\n\
         • `/help categories` - Learn about browsing categories";
-    
+
     ctx.say(help_text).await?;
     Ok(())
 }
@@ -344,7 +353,7 @@ async fn show_commands_help(ctx: Context<'_>) -> Result<(), Error> {
         Get help about the bot or specific topics.\n\
         • Without parameters: General overview\n\
         • With topic: Detailed help for that topic";
-    
+
     ctx.say(help_text).await?;
     Ok(())
 }
@@ -369,7 +378,7 @@ async fn show_query_language_help(ctx: Context<'_>) -> Result<(), Error> {
         • `(Biology + Chemistry) - Math` - Biology or chemistry, but no math\n\n\
         💡 Use `/query <expression>` to test your queries!\n\
         📂 Use `/categories` to see available categories!";
-    
+
     ctx.say(help_text).await?;
     Ok(())
 }
@@ -381,11 +390,14 @@ async fn query(
     #[description = "Query expression to test"] query_string: String,
 ) -> Result<(), Error> {
     debug!("Testing query: {}", query_string);
-    
+
     match parse_query(&query_string) {
         Ok(api_params) => {
-            let mut response = format!("✅ **Query parsed successfully!**\n\n**Input:** `{}`\n\n", query_string);
-            
+            let mut response = format!(
+                "✅ **Query parsed successfully!**\n\n**Input:** `{}`\n\n",
+                query_string
+            );
+
             if !api_params.categories.is_empty() {
                 response.push_str("**Main Categories:**\n");
                 for cat in &api_params.categories {
@@ -393,7 +405,7 @@ async fn query(
                 }
                 response.push('\n');
             }
-            
+
             if !api_params.subcategories.is_empty() {
                 response.push_str("**Subcategories:**\n");
                 for subcat in &api_params.subcategories {
@@ -401,7 +413,7 @@ async fn query(
                 }
                 response.push('\n');
             }
-            
+
             if !api_params.alternate_subcategories.is_empty() {
                 response.push_str("**Alternate Subcategories:**\n");
                 for alt_subcat in &api_params.alternate_subcategories {
@@ -409,14 +421,23 @@ async fn query(
                 }
                 response.push('\n');
             }
-            
-            if api_params.categories.is_empty() && api_params.subcategories.is_empty() && api_params.alternate_subcategories.is_empty() {
+
+            if api_params.categories.is_empty()
+                && api_params.subcategories.is_empty()
+                && api_params.alternate_subcategories.is_empty()
+            {
                 response.push_str("*No specific categories matched - would return questions from all categories.*\n\n");
             }
-            
-            response.push_str(&format!("**Number of questions:** {}\n\n", api_params.number));
-            response.push_str(&format!("💡 Use `/tossup query:{}` to get actual questions with this filter!", query_string));
-            
+
+            response.push_str(&format!(
+                "**Number of questions:** {}\n\n",
+                api_params.number
+            ));
+            response.push_str(&format!(
+                "💡 Use `/tossup query:{}` to get actual questions with this filter!",
+                query_string
+            ));
+
             ctx.say(response).await?;
         }
         Err(err) => {
@@ -434,11 +455,11 @@ async fn query(
                     "❌ **Incomplete Query**\n\nThe query ended unexpectedly. Check for unclosed parentheses.\n\n💡 Make sure all parentheses are properly closed.".to_string()
                 }
             };
-            
+
             ctx.say(error_msg).await?;
         }
     }
-    
+
     Ok(())
 }
 
