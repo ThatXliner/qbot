@@ -167,7 +167,7 @@ pub fn tokenize(input: &str) -> VecDeque<String> {
 ///
 /// This is the main entry point for parsing. It expects the entire input
 /// to be a valid expression with no leftover tokens.
-fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
+pub fn parse_expr(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     let result = parse_or(tokens);
     if !tokens.is_empty() {
         Err(QueryError::UnexpectedToken(format!(
@@ -291,7 +291,7 @@ fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
         Err(QueryError::UnexpectedEOF)
     }
 }
-const FUZZY_THRESHOLD: usize = 5;
+const FUZZY_THRESHOLD: usize = 3;
 
 fn match_against(
     comparator: &levenshtein::BatchComparator<char>,
@@ -309,8 +309,6 @@ fn match_against(
         .filter(|(_, dist)| *dist < FUZZY_THRESHOLD)
         .map(|(item, _)| item.clone())
         .collect();
-
-    info!("Close matches: {:?}", close_matches);
 
     if close_matches.len() == 1 {
         Some(close_matches[0].clone())

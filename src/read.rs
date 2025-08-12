@@ -1,5 +1,5 @@
 use ::serenity::all::{Mentionable, ReactionType};
-use poise::serenity_prelude as serenity;
+use poise::{reply, serenity_prelude as serenity};
 use std::collections::HashSet;
 use tokio::task;
 
@@ -7,29 +7,9 @@ use tokio::sync::watch;
 use tokio::time::{Duration, timeout};
 use tracing::debug;
 
-use crate::check::check_correct_answer;
+use crate::check::{Response, check_correct_answer};
+use crate::utils::*;
 use crate::{Context, Data, Error, QuestionState, qb::Tossup};
-/// In case we send this to an LLM
-fn render_html(answer: &str) -> String {
-    answer
-        .replace("<b>", "**")
-        .replace("</b>", "**")
-        .replace("<i>", "_")
-        .replace("</i>", "_")
-        .replace("<u>", "__")
-        .replace("</u>", "__")
-}
-fn format_question(question: &str) -> String {
-    question.replace("*", "\\*")
-    // .replace("<b>", "**")
-    // .replace("</b>", "**")
-    // .replace("<i>", "_")
-    // .replace("</i>", "_")
-    // .replace("(*)", ":star:")
-}
-fn nth_chunk<I: Iterator>(mut iter: I, n: usize) -> Vec<I::Item> {
-    iter.by_ref().take(n).collect()
-}
 // TODO: this code structure is suicide for maintainance
 pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<(), Error> {
     let Some(tossup) = tossups.first() else {
@@ -60,6 +40,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 state_change_tx,
                 // sob... but it should be fine
                 tossup.clone(),
+                buffer.clone(),
             ),
         );
     }
@@ -113,6 +94,13 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                         serenity::EditMessage::new().content(buffer.clone()),
                     )
                     .await?;
+                {
+                    let mut states = ctx.data().reading_states.lock().await;
+                    if let Some(state) = states.get_mut(&channel) {
+                        state.5.push(' ');
+                        state.5.push_str(&chunk.join(" "));
+                    }
+                }
                 // we defer our depower to after all state transitions have settled
                 // so we can help the user get the power
                 do_depower = chunk.join(" ").contains("(*)");
@@ -143,15 +131,39 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 {
                     let mut states = ctx.data().reading_states.lock().await;
                     if let Some(state) = states.get_mut(&channel) {
-                        if let QuestionState::Buzzed(user_id, _) = state.0 {
-                            debug!("State transition into invalid (timeout)");
-                            state.0 = QuestionState::Invalid(user_id);
-                            // Notify about state change
-                            let _ = state.3.send(());
-                        }
+                        debug!("State transition into invalid (timeout)");
+                        state.0 = QuestionState::Invalid(*user_id);
+                        // Notify about state change
+                        let _ = state.3.send(());
                     }
                 }
                 // otherwise, let the state fallthrough the next loop
+            }
+            // nearly identical to Buzzed
+            QuestionState::Prompt(user_id, prompt, _) => {
+                channel
+                    .say(&ctx.http(), format!("{} {}", prompt, user_id.mention()))
+                    .await?;
+
+                // wait until the user answers or the timeout is reached
+                if timeout(Duration::from_secs(5), state_change_rx.changed())
+                    .await
+                    // timeout has been reached
+                    .is_err()
+                {
+                    let mut states = ctx.data().reading_states.lock().await;
+                    if let Some(state) = states.get_mut(&channel) {
+                        debug!("State transition into invalid (timeout)");
+                        state.0 = QuestionState::Invalid(*user_id);
+                        // Notify about state change
+                        let _ = state.3.send(());
+                    }
+                }
+                continue;
+            }
+            QuestionState::Judging => {
+                state_change_rx.changed().await?;
+                continue;
             }
             QuestionState::Invalid(user_id) => {
                 let mut states = ctx.data().reading_states.lock().await;
@@ -167,6 +179,7 @@ pub async fn read_question(ctx: &Context<'_>, tossups: Vec<Tossup>) -> Result<()
                 message = channel.say(&ctx.http(), &buffer).await?;
                 continue;
             }
+
             QuestionState::Incorrect(user_id) => {
                 let mut states = ctx.data().reading_states.lock().await;
                 if let Some(state) = states.get_mut(&channel) {
@@ -233,31 +246,16 @@ pub async fn event_handler(
             if new_message.author.bot {
                 return Ok(());
             }
-            debug!("buzzed by {:?}", new_message.author.name);
             let current_state = {
                 let states = data.reading_states.lock().await;
                 match states.get(&new_message.channel_id) {
                     // Yo... is cloning all of this fine?
-                    Some(state) => (
-                        state.0.clone(),
-                        state.1,
-                        state.2.clone(),
-                        state.3.clone(),
-                        state.4.clone(),
-                    ),
+                    Some(state) => state.clone(),
                     None => {
-                        debug!(
-                            "No reading state found for channel {}",
-                            new_message.channel_id
-                        );
                         return Ok(());
                     }
                 }
             };
-            debug!(
-                "Reading state found for channel {}: {:?}",
-                new_message.channel_id, &current_state.0
-            );
             match &current_state.0 {
                 QuestionState::Reading => {
                     if new_message.content != "buzz" {
@@ -273,7 +271,6 @@ pub async fn event_handler(
                         return Ok(());
                     };
 
-                    let buzz_timestamp = new_message.timestamp.unix_timestamp();
                     // State transition
                     {
                         let mut states = data.reading_states.lock().await;
@@ -282,41 +279,88 @@ pub async fn event_handler(
                             state.0 = QuestionState::Buzzed(
                                 user_id,
                                 // I'm going to use Discord's timestamps
-                                buzz_timestamp,
+                                new_message.timestamp.unix_timestamp(),
                             );
                             // Notify about state change
                             let _ = state.3.send(());
                         }
                     }
                 }
-                QuestionState::Buzzed(id, timestamp) => {
-                    if *id != new_message.author.id {
+                QuestionState::Buzzed(user_id, timestamp) => {
+                    if *user_id != new_message.author.id {
                         return Ok(());
                     }
-                    if (new_message.timestamp.unix_timestamp() - timestamp) > 10 {
+                    let new_message_timestamp = new_message.timestamp.unix_timestamp();
+                    if (new_message_timestamp - timestamp) > 10 {
                         debug!("Buzz skipped since time limit exceeded");
                         // State transition to invalid is bound to happen
                         return Ok(());
                     }
-                    debug!("Buzz accepted");
-                    // State transition
-                    // I don't want to clone
-                    if check_correct_answer(current_state.4.clone(), new_message.content.as_str()) {
-                        let mut states = data.reading_states.lock().await;
-                        if let Some(state) = states.get_mut(&new_message.channel_id) {
-                            state.0 = QuestionState::Correct;
-                            state.2.insert(new_message.author.id);
-                            // Notify about state change
-                            let _ = state.3.send(());
-                        }
-                    } else {
-                        let mut states = data.reading_states.lock().await;
-                        if let Some(state) = states.get_mut(&new_message.channel_id) {
-                            state.0 = QuestionState::Incorrect(new_message.author.id);
-                            state.2.insert(new_message.author.id);
-                            // Notify about state change
-                            let _ = state.3.send(());
-                        }
+                    let mut states = data.reading_states.lock().await;
+                    if let Some(state) = states.get_mut(&new_message.channel_id) {
+                        new_message.reply(&ctx.http, "Judging...").await?;
+                        state.0 = QuestionState::Judging;
+                        let _ = state.3.send(());
+                        state.0 = match check_correct_answer(
+                            &data.llm,
+                            &current_state.5,
+                            new_message.content.as_str(),
+                            &current_state.4.answer_sanitized,
+                            false,
+                        )
+                        .await
+                        .unwrap()
+                        // State transition
+                        {
+                            Response::Correct => QuestionState::Correct,
+                            Response::Incorrect => {
+                                state.2.insert(new_message.author.id);
+                                QuestionState::Incorrect(new_message.author.id)
+                            }
+                            Response::Prompt(text) => QuestionState::Prompt(
+                                new_message.author.id,
+                                text,
+                                new_message_timestamp,
+                            ),
+                        };
+                        // Notify about state change
+                        let _ = state.3.send(());
+                    }
+                }
+                QuestionState::Prompt(user_id, _, timestamp) => {
+                    if *user_id != new_message.author.id {
+                        return Ok(());
+                    }
+                    let new_message_timestamp = new_message.timestamp.unix_timestamp();
+                    if (new_message_timestamp - timestamp) > 10 {
+                        debug!("Buzz skipped since time limit exceeded");
+                        // State transition to invalid is bound to happen
+                        return Ok(());
+                    }
+                    let mut states = data.reading_states.lock().await;
+                    if let Some(state) = states.get_mut(&new_message.channel_id) {
+                        new_message.reply(&ctx.http, "Judging...").await?;
+                        state.0 = QuestionState::Judging;
+                        let _ = state.3.send(());
+                        state.0 = match check_correct_answer(
+                            &data.llm,
+                            &current_state.5,
+                            new_message.content.as_str(),
+                &current_state.4.answer_sanitized,
+                            true,
+                        )
+                        .await
+                        .unwrap()
+                        // State transition
+                        {
+                            Response::Correct => QuestionState::Correct,
+                            Response::Incorrect | Response::Prompt(_) => {
+                                state.2.insert(new_message.author.id);
+                                QuestionState::Incorrect(new_message.author.id)
+                            }
+                        };
+                        // Notify about state change
+                        let _ = state.3.send(());
                     }
                 }
                 _ => {}
