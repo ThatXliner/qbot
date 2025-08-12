@@ -30,7 +30,11 @@ You may only respond with one of:
 
 Only PROMPT if the answer could be correct but needs clarification or specificity. If you do decide to answer with "PROMPT", you may optionally include a clarifying question (but only if specified in the answer key) like so: "PROMPT: which cell?". Otherwise, simply respond with "PROMPT"
 
-You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee" or "the peroidic table" vs "The Periodic Table of Elements"). Try to be as lenient as possible, but also be strict enough to ensure that the contestant is not simply guessing.
+You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee" or "the peroidic table" vs "The Periodic Table of Elements").
+
+For people, omitting parts of names is acceptable, unless it would then be ambiguous with other probable answers. In general, try to be as lenient as possible, but also be strict enough to ensure that the contestant is not simply guessing.
+
+Additionally, if the contestant provides an answer that is a subset (or similarly related) to the answer key, you may respond with "PROMPT".
 
 Here is the question read so far:
 ```
@@ -50,7 +54,11 @@ Judge, what is your response? Remember to be lenient on typos"#).unwrap();
 
 You may only respond with one of "CORRECT", "INCORRECT". Typically, you would also have the option to respond with "PROMPT" and a clarifying question, but in this case you do NOT have that option since our contestant is currently responding to a prompt (and you cannot prompt them more than once).
 
-You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee" or "the peroidic table" vs "The Periodic Table of Elements"). Try to be as lenient as possible, but also be strict enough to ensure that the contestant is not simply guessing.
+You may judge our contestant somewhat leniently, so semantically equivalent statements or typos may be considered correct (e.g. "burners lee" vs "Tim Berners-Lee" or "the peroidic table" vs "The Periodic Table of Elements").
+
+For people, omitting parts of names is acceptable, unless it would then be ambiguous with other probable answers. In general, try to be as lenient as possible, but also be strict enough to ensure that the contestant is not simply guessing.
+
+Additionally, if the contestant provides an answer that is a subset (or similarly related) to the answer key but not technically the equivalent, you must respond with "INCORRECT".
 
 Here is the question read so far:
 ```
@@ -61,7 +69,7 @@ Here is our contestant's response:
 {{ response }}
 ```
 Here is the answer key:
-```
+```md
 {{ answer }}
 ```
 
@@ -70,7 +78,7 @@ Judge, what is your response? Remember to be lenient on typos"#).unwrap();
 });
 // Threshold for fuzzy matching
 // intentionally separate from its appearance in the other file
-const FUZZY_THRESHOLD: usize = 10;
+const FUZZY_THRESHOLD: usize = 5;
 pub async fn check_correct_answer(
     llm: &Box<dyn LLMProvider>,
     // TODO: maybe input the whole question with a mark of where we left off
@@ -85,7 +93,8 @@ pub async fn check_correct_answer(
     let mut context = tera::Context::new();
     context.insert("question", question_so_far);
     context.insert("response", answer);
-    context.insert("answer", answer_key);
+    context.insert("answer", &answer_key.0);
+    // Basic levenshtein distance
     let normalized_answer = ANSWER_RE.replace(&answer_key.1, "").into_owned();
     if levenshtein::distance(
         normalized_answer.to_lowercase().chars(),
@@ -94,7 +103,7 @@ pub async fn check_correct_answer(
     {
         return Ok(Response::Correct);
     };
-
+    // Levenshtein distance on extracted subword
     if let Some(normalized_answer) = EXTRACT_SUB
         .captures(&answer_key.0.replace("<u>", "").replace("</u>", ""))
         .and_then(|captures| captures.name("inner"))
@@ -109,7 +118,6 @@ pub async fn check_correct_answer(
         }
     }
     // TODO: add "matches a subword"?
-
     // TODO: add word2vec
     let messages = vec![
         ChatMessage::user()
@@ -172,7 +180,7 @@ mod tests {
 
     use super::*;
 
-    static llm: LazyLock<Box<dyn LLMProvider>> = LazyLock::new(|| {
+    static LLM: LazyLock<Box<dyn LLMProvider>> = LazyLock::new(|| {
         LLMBuilder::new()
             .backend(llm::builder::LLMBackend::Ollama) // Use Ollama as the LLM backend
             .base_url(std::env::var("OLLAMA_URL").unwrap_or("http://127.0.0.1:11434".into())) // Set the Ollama server URL
@@ -183,13 +191,16 @@ mod tests {
             .build()
             .expect("Failed to build LLM (Ollama)")
     });
+    fn e(a: &str, b: &str) -> (String, String) {
+        (a.to_string(), b.to_string())
+    }
     #[tokio::test]
     async fn test_exact_match() {
         let result = check_correct_answer(
-            &llm,
+            &LLM,
             "What is the capital of France?",
             "Paris",
-            "Paris",
+            &e("Paris", "Paris"),
             false,
         )
         .await
@@ -201,25 +212,25 @@ mod tests {
     #[tokio::test]
     async fn test_close_match() {
         let result = check_correct_answer(
-            &llm,
+            &LLM,
             "Who invented the World Wide Web?",
-            "Tim burners lee",
-            "Tim Berners-Lee",
+            "burners lee",
+            &e("Tim Berners-Lee", "Tim Berners-Lee"),
             false,
         )
         .await
         .unwrap();
 
-        assert!(matches!(result, Response::Correct), "{:?}", result);
+        assert!(!matches!(result, Response::Incorrect(_)), "{:?}", result);
     }
 
     #[tokio::test]
     async fn test_incorrect_answer() {
         let result = check_correct_answer(
-            &llm,
+            &LLM,
             "What is the capital of France?",
             "London",
-            "Paris",
+            &e("Paris", "Paris"),
             false,
         )
         .await
@@ -231,10 +242,10 @@ mod tests {
     #[tokio::test]
     async fn test_real_case_1() {
         let result = check_correct_answer(
-            &llm,
+            &LLM,
             "This quantity is related to a specific wavelength, lambda, by A lambda squared plus B plus C lambda to the minus two plus D lambda to the minus four, where A through D are material constants, in Cauchy's equation. It is sometimes useful to derive this quantity as the square root of relative permittivity times relative permeability. The arcsine of the ratio of this quantity for two media gives the critical angle for (*) total internal reflection. The ratio of this quantity for two media is equal to the ratio of the sine",
             "indxe fo refarction",
-            "index of refraction [or n until it is read]",
+            &e("index of refraction [or n until it is read]", "index of <b>refraction</b> [or n until it is read]"),
             false,
         )
         .await
@@ -247,10 +258,26 @@ mod tests {
     #[tokio::test]
     async fn test_real_case_2() {
         let result = check_correct_answer(
-            &llm,
+            &LLM,
             r#"The energy eigenspectrum associated with this system's quantum analogue can be solved for analytically using Hermite Polynomials or algebraically using the creation and annihilation operators. If its potential is truncated quadratically in the Taylor series centered around the minimum potential, any arbitrary system can be (*) modelled by this system. The general homogeneous solutions to this system's equations of motion are complex exponentials in time. Approximating sine of x to first order allows for the use of this system for ideal pendulums at small angles. For 10 points, name this physical system which can be used to model frictionless, Hookean springs."#,
             "simple harmonic system",
-            r#"simple harmonic oscillators (accept SHOs, prompt on "harmonic oscillators")"#,
+            &e(r#"simple harmonic oscillators (accept SHOs, prompt on "harmonic oscillators")"#, r#"simple harmonic oscillators (accept SHOs, prompt on "harmonic oscillators")"#),
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(result, Response::Incorrect(_)), "{:?}", result);
+    }
+
+    // underlined part
+    #[tokio::test]
+    async fn test_real_case_3() {
+        let result = check_correct_answer(
+            &LLM,
+            r#"Mark Moseley was playing for this team when he became the only placekicker to be awarded MVP. This team reached Super Bowl VII ["seven"] with a team of veterans nicknamed the "Over the Hill Gang". Gary Clark and Ricky Sanders joined a member of "The Fun Bunch", Art Monk, in a wide receiver trio for this team nicknamed "The (*) Posse". Cornerback Darrell Green played his entire career for this team. In the 2016 playoffs, this winner of the NFC East lost to the Green Bay Packers at their home stadium of FedExField. For 10 points, name this NFL team whose name combines a controversial slang term for Native Americans with the US capital."#,
+            "redskins",
+            &e(r#"<b><u>Washington</u></b> <b><u>Redskins</u></b> [accept either underlined part]"#, r#"Washington Redskins [accept either underlined part]"#),
             false,
         )
         .await
