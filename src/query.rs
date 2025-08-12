@@ -102,7 +102,7 @@ impl fmt::Display for Expr {
 ///
 /// This structure maps the logical query to the specific API parameters
 /// needed by the QBReader API for filtering questions.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ApiQuery {
     /// Main categories to include (e.g., ["Science", "History"])
     pub categories: Vec<String>,
@@ -110,6 +110,19 @@ pub struct ApiQuery {
     pub subcategories: Vec<String>,
     /// Alternate subcategories to include (e.g., ["Math", "Computer Science"])
     pub alternate_subcategories: Vec<String>,
+    /// Number of questions to retrieve
+    pub number: u32,
+}
+
+impl Default for ApiQuery {
+    fn default() -> Self {
+        ApiQuery {
+            categories: Vec::new(),
+            subcategories: Vec::new(),
+            alternate_subcategories: Vec::new(),
+            number: 1,
+        }
+    }
 }
 
 /// Errors that can occur during query parsing and validation

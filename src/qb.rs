@@ -61,6 +61,8 @@ pub async fn random_tossup(
         url.query_pairs_mut()
             .append_pair("alternateSubcategories", alternate_subcategory);
     }
+    url.query_pairs_mut()
+        .append_pair("number", &api_params.number.to_string());
 
     let response = reqwest.get(url).send().await?;
     let response = response.json::<Tossups>().await?;

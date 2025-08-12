@@ -125,7 +125,8 @@ async fn tossup(
     read_question(&ctx, tossup).await?;
     Ok(())
 }
-/// Displays your or another user's account creation date
+
+/// Displays the quiz bowl categories you can choose from
 #[poise::command(slash_command, prefix_command)]
 async fn categories(
     ctx: Context<'_>,
