@@ -1,6 +1,7 @@
 use ::serenity::all::{Mentionable, ReactionType};
 use poise::serenity_prelude as serenity;
 use std::collections::HashSet;
+use std::thread::sleep;
 
 use tokio::task;
 
@@ -73,6 +74,8 @@ pub async fn read_question(
                 // speaking speed
                 let chunk = nth_chunk(&mut question, 5);
                 if chunk.is_empty() {
+                    task::yield_now().await;
+                    sleep(Duration::from_secs(3));
                     if timeout(Duration::from_secs(5), state_change_rx.changed())
                         .await
                         .is_ok()
@@ -107,7 +110,7 @@ pub async fn read_question(
                         state.5.push_str(&chunk.join(" "));
                     }
                 }
-
+                task::yield_now().await;
                 if timeout(Duration::from_millis(750), state_change_rx.changed())
                     .await
                     .is_ok()
@@ -137,6 +140,11 @@ pub async fn read_question(
                     info!("Time out reached! (buzz)");
                     let mut states = ctx.data().reading_states.lock().await;
                     if let Some(state) = states.get_mut(&channel) {
+                        if state.0 == QuestionState::Judging {
+                            // Ok idk what happened here but clearly this is a possible state
+                            // transition
+                            continue;
+                        }
                         debug!("State transition into invalid (timeout)");
                         state.0 = QuestionState::Invalid(*user_id);
                         // Notify about state change
@@ -160,6 +168,11 @@ pub async fn read_question(
                     info!("Time out reached! (prompt)");
                     let mut states = ctx.data().reading_states.lock().await;
                     if let Some(state) = states.get_mut(&channel) {
+                        if state.0 == QuestionState::Judging {
+                            // Ok idk what happened here but clearly this is a possible state
+                            // transition
+                            continue;
+                        }
                         debug!("State transition into invalid (timeout)");
                         state.0 = QuestionState::Invalid(*user_id);
                         // Notify about state change
@@ -169,6 +182,8 @@ pub async fn read_question(
                 continue;
             }
             QuestionState::Judging => {
+                task::yield_now().await;
+                // Wait for state change
                 state_change_rx.changed().await?;
 
                 continue;

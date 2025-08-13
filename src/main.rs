@@ -31,7 +31,7 @@ mod utils;
 mod utils_tests;
 
 // https://mermaid.live/edit#pako:eNplkMtugzAQRX_FmmUFCNuYOF5UaummGxZdtu7CAocgBTsypg8Q_14eKY2aWc09d-7YmgEKW2oQ0Hrl9VOtKqea8INIg6ZaIJKQW_Rg2k_tJCDVonx13-7eURjeoxetytpUK7yIxXjs-n6lc7egSzS_DW4jmXVOF_4ffTbFNd_k7aLsypi-CAFUri5BeNfpABrtGjVLGOZxCf6oGy1BTG2pD6o7eQnSjFPsrMyrtc1v0tmuOoI4qFM7qe5c_h1so06bUrvMdsaDIMmeL1tADPAFAic0wozSNI055-mOBPANIqURxyThnDG2jzkZA-iXV-OI71gcx5ikmFNGcTL-ABL-f_0
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum QuestionState {
     Reading,
     // Buzzed (user_id, timestamp)
@@ -76,10 +76,10 @@ pub type Context<'a> = poise::Context<'a, Data, Error>;
 async fn tossup(
     ctx: Context<'_>,
     #[description = "Query for selecting the category"] query: Option<String>,
-    #[description = "Number of questions to read (1-10)"]
-    #[min = 1]
-    #[max = 10]
-    number: Option<u32>,
+    // #[description = "Number of questions to read (1-10)"]
+    // #[min = 1]
+    // #[max = 10]
+    // number: Option<u32>,
 ) -> Result<(), Error> {
     if ctx
         .data()
@@ -98,7 +98,8 @@ async fn tossup(
         return Ok(());
     }
 
-    let number_of_questions = number.unwrap_or(1);
+    let number_of_questions = 1;
+    // let number_of_questions = number.unwrap_or(1);
 
     let tossups = if let Some(query) = query {
         let mut parsed_results = parse_query(&query);
@@ -496,7 +497,7 @@ async fn main() {
                     llm: LLMBuilder::new()
                         .backend(LLMBackend::Ollama) // Use Ollama as the LLM backend
                         .base_url(ollama_base_url) // Set the Ollama server URL
-                        .model("qwen3:0.6b")
+                        .model("qwen3:1.7b")
                         .max_tokens(1000) // Set maximum response length
                         .temperature(0.7) // Control response randomness (0.0-1.0)
                         .stream(false) // Disable streaming responses
