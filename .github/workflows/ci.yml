@@ -112,7 +112,7 @@ jobs:
             --disable-content-trust
       - name: Push To GHCR (as tag latest)
         uses: ./
-        id: push
+        id: push-latest
         with:
           image: ${{ steps.build_image.outputs.image }}
           tags: latest
