@@ -490,7 +490,7 @@ async fn main() {
                     llm: LLMBuilder::new()
                         .backend(LLMBackend::Ollama) // Use Ollama as the LLM backend
                         .base_url(ollama_base_url) // Set the Ollama server URL
-                        .model("qwen3:0.6b")
+                        .model("qwen3:1.7b")
                         .max_tokens(1000) // Set maximum response length
                         .temperature(0.7) // Control response randomness (0.0-1.0)
                         .stream(false) // Disable streaming responses
