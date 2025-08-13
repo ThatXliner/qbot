@@ -73,3 +73,11 @@ jobs:
         with:
           file: ./cobertura.xml
           fail_ci_if_error: false
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t app .
