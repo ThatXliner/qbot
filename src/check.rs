@@ -22,6 +22,7 @@ static TEMPLATER: LazyLock<Tera> =
 // Threshold for fuzzy matching
 // intentionally separate from its appearance in the other file
 const FUZZY_THRESHOLD: usize = 5;
+#[allow(clippy::borrowed_box)]
 pub async fn check_correct_answer(
     llm: &Box<dyn LLMProvider>,
     // TODO: maybe input the whole question with a mark of where we left off

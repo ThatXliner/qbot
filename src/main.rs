@@ -45,27 +45,20 @@ pub enum QuestionState {
     // OPTIMIZE: Idle state rather than deleting it from the map?
     // I'll need to figure out which is more performant
 }
-
+pub type ChannelState = (
+    QuestionState,
+    // shoot, i need to remove this... but it's gonna be a pain to change...
+    bool,
+    HashSet<UserId>,
+    watch::Sender<()>,
+    Tossup,
+    String,
+);
 /// User data, which is stored and accessible in all command invocations
 pub struct Data {
     pub reqwest: reqwest::Client,
     // (channel_id, (question_state, power?, blocklist, state_change_notifier))
-    pub reading_states: Arc<
-        Mutex<
-            HashMap<
-                ChannelId,
-                (
-                    QuestionState,
-                    // shoot, i need to remove this... but it's gonna be a pain to change...
-                    bool,
-                    HashSet<UserId>,
-                    watch::Sender<()>,
-                    Tossup,
-                    String,
-                ),
-            >,
-        >,
-    >,
+    pub reading_states: Arc<Mutex<HashMap<ChannelId, ChannelState>>>,
     pub llm: Box<dyn LLMProvider>,
 }
 
@@ -138,8 +131,10 @@ async fn tossup(
         }
     } else {
         let reqwest = &ctx.data().reqwest;
-        let mut api_query = ApiQuery::default();
-        api_query.number = number_of_questions;
+        let api_query = ApiQuery {
+            number: number_of_questions,
+            ..ApiQuery::default()
+        };
         let get_tossup = random_tossup(reqwest, &api_query).await?;
         get_tossup.tossups
     };

@@ -305,13 +305,13 @@ fn parse_primary(tokens: &mut VecDeque<String>) -> Result<Expr, QueryError> {
     }
 }
 const FUZZY_THRESHOLD: usize = 3;
-
+#[allow(clippy::ptr_arg)]
 fn match_against(
     comparator: &levenshtein::BatchComparator<char>,
     b: &Vec<String>,
 ) -> Option<String> {
     let mut distances: Vec<(String, usize)> = b
-        .into_iter()
+        .iter()
         .map(|item| {
             (
                 item.clone(),
@@ -334,6 +334,7 @@ fn match_against(
         None
     }
 }
+pub type RawCategories = (Vec<String>, Vec<String>, Vec<String>);
 /// Validate recursively
 /// Validate and convert an expression tree to API query parameters
 ///
@@ -343,7 +344,7 @@ fn match_against(
 /// - Operator semantics (AND, OR, NOT)
 /// - Subcategory and alternate subcategory mapping
 /// - Error detection for impossible queries
-fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), QueryError> {
+fn validate(expr: &Expr) -> Result<RawCategories, QueryError> {
     match expr {
         Expr::Token(t) => {
             let comparator = levenshtein::BatchComparator::new(t.to_lowercase().chars());
@@ -352,21 +353,21 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
                 if comparator.distance(key.to_lowercase().chars()) < FUZZY_THRESHOLD {
                     return Ok((
                         vec![key.to_string()],
-                        value.0.into_iter().map(|s| s.to_string()).collect(),
-                        value.1.into_iter().map(|s| s.to_string()).collect(),
+                        value.0.iter().map(|s| s.to_string()).collect(),
+                        value.1.iter().map(|s| s.to_string()).collect(),
                     ));
                 }
                 // Check if it's a regular subcategory (e.g., "Biology" -> Science/Biology)
                 if let Some(result) = match_against(
                     &comparator,
-                    &value.0.into_iter().map(|x| x.to_string()).collect(),
+                    &value.0.iter().map(|x| x.to_string()).collect(),
                 ) {
                     return Ok((vec![key.to_string()], vec![result], vec![]));
                 }
                 // Check if it's an alternate subcategory (e.g., "Math" -> Science/Other Science/Math)
                 if let Some(result) = match_against(
                     &comparator,
-                    &value.1.into_iter().map(|x| x.to_string()).collect(),
+                    &value.1.iter().map(|x| x.to_string()).collect(),
                 ) {
                     let misc_category = format!("Other {}", key);
                     assert!(value.0.contains(&misc_category.as_str()));
@@ -470,29 +471,6 @@ fn validate(expr: &Expr) -> Result<(Vec<String>, Vec<String>, Vec<String>), Quer
             Ok((ac, asub, aalt))
         }
     }
-}
-
-/// Convert a token to proper capitalization for category matching
-///
-/// Each word is capitalized (first letter uppercase, rest lowercase)
-/// to match the category naming convention in CATEGORIES.
-///
-/// # Examples:
-/// - `"biology"` → `"Biology"`
-/// - `"american literature"` → `"American Literature"`
-#[inline]
-fn capitalize_token(token: &str) -> String {
-    token
-        .split_whitespace()
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Build the final API query from a validated expression tree
