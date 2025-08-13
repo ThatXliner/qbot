@@ -33,6 +33,7 @@ WORKDIR /app
 # Copy the binary from the builder stage
 COPY --from=builder /app/target/release/qbot /app/qbot
 
+RUN ollama serve
 RUN ollama pull qwen3:1.7b
 
 # Set environment variables with defaults
