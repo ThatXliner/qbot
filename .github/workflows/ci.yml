@@ -3,11 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
+  IMAGE_NAME: qbot
+  IMAGE_TAGS: v0 ${{ github.sha }}
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  REGISTRY_USER: ${{ github.actor }}
+  REGISTRY_PASSWORD: ${{ github.token }}
 
 jobs:
   test:
@@ -78,6 +81,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
-        run: docker build -t app .
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build Docker image with cache
+        run: |
+          docker buildx build \
+            --cache-from=type=local,src=/tmp/.buildx-cache \
+            --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
+            -t app .
+      # Push the image to GHCR (Image Registry)
+      - name: Push To GHCR
+        uses: ./
+        id: push
+        with:
+          image: ${{ steps.build_image.outputs.image }}
+          tags: ${{ steps.build_image.outputs.tags }}
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+          extra-args: |
+            --disable-content-trust
+      - name: Push To GHCR (as tag latest)
+        uses: ./
+        id: push
+        with:
+          image: ${{ steps.build_image.outputs.image }}
+          tags: latest
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+          extra-args: |
+            --disable-content-trust

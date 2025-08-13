@@ -2,22 +2,21 @@ version: "3.9"
 
 services:
   ollama:
-    image: ollama/ollama:0.11.4
-    command: ["serve"]
+    build: ./ollama
     ports:
       - "11434:11434"
     environment:
       OLLAMA_KEEP_ALIVE: "1h"
     volumes:
       - ollama-models:/root/.ollama
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: "1024M"
-        reservations:
-          cpus: "0.5"
-          memory: "1024M"
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "0.5"
+    #       memory: "1024M"
+    #     reservations:
+    #       cpus: "0.5"
+    #       memory: "1024M"
     logging:
       driver: "json-file"
       options:
@@ -25,7 +24,7 @@ services:
         max-file: "3"
 
   qbot:
-    image: REPLACE_ECR_ACCOUNT_ID.dkr.ecr.REPLACE_AWS_REGION.amazonaws.com/REPLACE_ECR_REPOSITORY:latest
+    build: .
     depends_on:
       - ollama
     environment:
@@ -37,14 +36,14 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: "1024M"
-        reservations:
-          cpus: "0.5"
-          memory: "1024M"
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "0.5"
+    #       memory: "1024M"
+    #     reservations:
+    #       cpus: "0.5"
+    #       memory: "1024M"
 
 volumes:
   ollama-models:
