@@ -6,14 +6,16 @@ A sophisticated Discord bot for quiz bowl question practice featuring an advance
 
 ## 🎯 Features
 
-- **Smart Question Filtering**: Advanced query language with Boolean operations for precise question selection
-- **Interactive Question Reading**: Real-time question reading with buzzing functionality
-- **AI-Powered Answer Checking**: Intelligent answer validation using LLM integration
-- **Multiple Question Support**: Read 1-10 questions in sequence with automatic transitions
-- **Comprehensive Categories**: Support for all major quiz bowl categories and subcategories
-- **Real-time Feedback**: Instant validation and prompting for incorrect answers
+- 🔍 **Smart Question Filtering**: Advanced query language with Boolean operations for precise question selection
+- 👓 **Interactive Question Reading**: Real-time question reading with buzzing functionality
+- 🧠 **AI-Powered Answer Checking**: Intelligent answer validation using LLM integration
+- 📚 **Comprehensive Categories**: Support for all major quiz bowl categories and subcategories
+- :zap: **Real-time Feedback**: Instant validation and prompting for incorrect answers
+<!-- - **Multiple Question Support**: Read 1-10 questions in sequence with automatic transitions-->
 
 ## 🚀 Quick Start
+
+Install the bot now here: https://discord.com/oauth2/authorize?client_id=1404873488312828066
 
 ### Prerequisites
 
@@ -50,8 +52,9 @@ A sophisticated Discord bot for quiz bowl question practice featuring an advance
 ### Basic Commands
 
 - **`/tossup [query] [number]`** - Get quiz bowl questions
-  - `query` (optional): Filter using query language
-  - `number` (optional): Number of questions (1-10, default: 1)
+  - `query` (optional): Filter using [query language](#query-language-operators), otherwise pick from a random category
+  - **Buzzing**: Message `buzz` during question reading to buzz in
+  - **Answer Checking**: Type answers for AI-powered validation
 
 - **`/categories [category]`** - Browse available categories
   - Without parameters: Shows all main categories
@@ -70,13 +73,6 @@ A sophisticated Discord bot for quiz bowl question practice featuring an advance
 /tossup query:Science - Math             # Science excluding Math
 /tossup query:(Biology + Chemistry) - Math number:3  # 3 questions, Biology or Chemistry but no Math
 ```
-
-### Interactive Features
-
-- **Buzzing**: React with 🤚 during question reading to buzz in
-- **Answer Checking**: Submit answers for AI-powered validation
-- **Multiple Questions**: Automatically transitions between questions
-- **Real-time State**: Shows question progress and player states
 
 ## 🔧 Development
 
@@ -102,10 +98,7 @@ cargo tarpaulin --verbose --workspace --timeout 120 --skip-clean
 cargo fmt
 
 # Run linter
-cargo clippy --all-targets --all-features
-
-# Check formatting
-cargo fmt --all -- --check
+cargo clippy
 ```
 
 ### Development Dependencies
