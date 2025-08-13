@@ -21,7 +21,7 @@ COPY src/ ./src/
 RUN cargo build --release
 
 # Create the runtime image
-FROM ollama:0.11.4
+FROM ollama/ollama:0.11.4
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
