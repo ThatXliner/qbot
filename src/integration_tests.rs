@@ -61,7 +61,7 @@ mod tests {
         assert!(result.categories.contains(&"Science".to_string()));
         // The exact behavior depends on the operator precedence implementation
         // Let's just test that it parses successfully and includes expected categories
-        assert!(result.categories.len() >= 1);
+        assert!(!result.categories.is_empty());
     }
 
     #[test]
@@ -250,7 +250,7 @@ mod tests {
     fn test_performance_large_query() {
         // Test that large queries don't cause performance issues
         let mut large_query = String::new();
-        let categories = vec!["Science", "History", "Literature"];
+        let categories = ["Science", "History", "Literature"];
 
         for i in 0..100 {
             if i > 0 {
