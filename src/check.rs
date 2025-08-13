@@ -64,7 +64,6 @@ pub async fn check_correct_answer(
         .captures_iter(&answer_key.0.replace("<b>", "").replace("</b>", ""))
         .map(|capture| capture.extract())
     {
-        info!("Normalized answer: {}", normalized_answer);
         if levenshtein::distance(
             normalized_answer.to_lowercase().chars(),
             answer.to_lowercase().chars(),
