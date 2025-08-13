@@ -30,20 +30,11 @@ RUN apt-get update && apt-get install -y \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create a non-root user
-RUN useradd -m -u 1000 qbot
-
 # Set the working directory
 WORKDIR /app
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/target/release/qbot /app/qbot
-
-# Change ownership to the qbot user
-RUN chown qbot:qbot /app/qbot
-
-# Switch to the non-root user
-USER qbot
 
 RUN ollama pull qwen3:1.7b
 
