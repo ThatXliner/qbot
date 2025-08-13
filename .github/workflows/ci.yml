@@ -91,7 +91,7 @@ jobs:
             -t app .
       # Push the image to GHCR (Image Registry)
       - name: Push To GHCR
-        uses: ./
+        uses: redhat-actions/push-to-registry@v2
         id: push
         with:
           image: ${{ steps.build_image.outputs.image }}
@@ -102,7 +102,7 @@ jobs:
           extra-args: |
             --disable-content-trust
       - name: Push To GHCR (as tag latest)
-        uses: ./
+        uses: redhat-actions/push-to-registry@v2
         id: push-latest
         with:
           image: ${{ steps.build_image.outputs.image }}
