@@ -17,28 +17,12 @@ COPY src/ ./src/
 # Build dependencies (this layer will be cached)
 RUN cargo build --release
 
-
-# Create the runtime image
-FROM ollama/ollama:0.11.4
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set the working directory
+# Build stage
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-
-# Copy the binary from the builder stage
 COPY --from=builder /app/target/release/qbot /app/qbot
-
-RUN ollama serve
-RUN ollama pull qwen3:1.7b
-
-# Set environment variables with defaults
 ENV RUST_LOG=info
-ENV OLLAMA_URL=http://127.0.0.1:11434
-
-# Run the application
+# IMPORTANT: service discovery by container name inside the task
+ENV OLLAMA_URL=http://ollama:11434
 CMD ["./qbot"]
