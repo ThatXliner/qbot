@@ -1,10 +1,11 @@
 # Use the official Rust image as the base
-FROM rust:1.75-slim as builder
+FROM rust:1.87-slim as builder
 
 # Install system dependencies needed for building
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
