@@ -13,13 +13,10 @@ WORKDIR /app
 
 # Copy the Cargo files first for better Docker layer caching
 COPY Cargo.toml Cargo.lock ./
+COPY src/ ./src/
 # Build dependencies (this layer will be cached)
 RUN cargo build --release
 
-# Copy the source code
-COPY src/ ./src/
-# Build the application
-RUN cargo build --release
 
 # Create the runtime image
 FROM ollama/ollama:0.11.4
