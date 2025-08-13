@@ -1,8 +1,9 @@
 #[cfg(test)]
+#[cfg(not(tarpaulin))]
 mod judge_tests {
     use std::sync::LazyLock;
 
-    use llm::{LLMProvider, builder::LLMBuilder};
+    use llm::{builder::LLMBuilder, LLMProvider};
 
     use crate::check::*;
 

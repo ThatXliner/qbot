@@ -1,28 +1,34 @@
-use llm::LLMProvider;
 use llm::builder::{LLMBackend, LLMBuilder};
-use poise::{CreateReply, send_reply, serenity_prelude as serenity};
+use llm::LLMProvider;
+use poise::{send_reply, serenity_prelude as serenity, CreateReply};
 use tracing::debug;
 
-use crate::qb::{Tossup, random_tossup};
-use crate::query::{ApiQuery, CATEGORIES, QueryError, parse_query};
+use crate::qb::{random_tossup, Tossup};
+use crate::query::{parse_query, ApiQuery, QueryError, CATEGORIES};
 use crate::read::{event_handler, read_question};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serenity::all::{ChannelId, UserId};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{watch, Mutex};
 
 // #[cfg(test)]
 // mod buzzing_test;
 mod check;
 #[cfg(test)]
+mod integration_tests;
+#[cfg(test)]
 mod judge_tests;
 mod qb;
+#[cfg(test)]
+mod qb_tests;
 mod query;
 #[cfg(test)]
 mod query_tests;
 mod read;
 mod utils;
+#[cfg(test)]
+mod utils_tests;
 
 // https://mermaid.live/edit#pako:eNplkMtugzAQRX_FmmUFCNuYOF5UaummGxZdtu7CAocgBTsypg8Q_14eKY2aWc09d-7YmgEKW2oQ0Hrl9VOtKqea8INIg6ZaIJKQW_Rg2k_tJCDVonx13-7eURjeoxetytpUK7yIxXjs-n6lc7egSzS_DW4jmXVOF_4ffTbFNd_k7aLsypi-CAFUri5BeNfpABrtGjVLGOZxCf6oGy1BTG2pD6o7eQnSjFPsrMyrtc1v0tmuOoI4qFM7qe5c_h1so06bUrvMdsaDIMmeL1tADPAFAic0wozSNI055-mOBPANIqURxyThnDG2jzkZA-iXV-OI71gcx5ikmFNGcTL-ABL-f_0
 #[derive(Debug, Clone, PartialEq)]
@@ -39,27 +45,20 @@ pub enum QuestionState {
     // OPTIMIZE: Idle state rather than deleting it from the map?
     // I'll need to figure out which is more performant
 }
-
+pub type ChannelState = (
+    QuestionState,
+    // shoot, i need to remove this... but it's gonna be a pain to change...
+    bool,
+    HashSet<UserId>,
+    watch::Sender<()>,
+    Tossup,
+    String,
+);
 /// User data, which is stored and accessible in all command invocations
 pub struct Data {
     pub reqwest: reqwest::Client,
     // (channel_id, (question_state, power?, blocklist, state_change_notifier))
-    pub reading_states: Arc<
-        Mutex<
-            HashMap<
-                ChannelId,
-                (
-                    QuestionState,
-                    // shoot, i need to remove this... but it's gonna be a pain to change...
-                    bool,
-                    HashSet<UserId>,
-                    watch::Sender<()>,
-                    Tossup,
-                    String,
-                ),
-            >,
-        >,
-    >,
+    pub reading_states: Arc<Mutex<HashMap<ChannelId, ChannelState>>>,
     pub llm: Box<dyn LLMProvider>,
 }
 
@@ -132,8 +131,10 @@ async fn tossup(
         }
     } else {
         let reqwest = &ctx.data().reqwest;
-        let mut api_query = ApiQuery::default();
-        api_query.number = number_of_questions;
+        let api_query = ApiQuery {
+            number: number_of_questions,
+            ..ApiQuery::default()
+        };
         let get_tossup = random_tossup(reqwest, &api_query).await?;
         get_tossup.tossups
     };

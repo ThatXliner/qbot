@@ -1,3 +1,30 @@
+# Rust build artifacts
 /target
+Cargo.lock
+
+# Environment variables
 .env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Test coverage
+tarpaulin-report.html
+cobertura.xml
+
+# Temporary files
+*.tmp
+*.temp
+*.profraw

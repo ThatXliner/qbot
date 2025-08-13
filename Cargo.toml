@@ -1,7 +1,14 @@
 [package]
 name = "qbot"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+authors = ["ThatXliner"]
+description = "A sophisticated Discord bot for quiz bowl question practice with advanced query language support"
+repository = "https://github.com/ThatXliner/qbot"
+license = "MIT"
+keywords = ["discord", "bot", "quiz-bowl", "trivia", "education"]
+categories = ["games", "web-programming"]
+readme = "README.md"
 
 [dependencies]
 llm = { version = "1.3.3", features = ["ollama"] }
@@ -11,6 +18,7 @@ rapidfuzz = "0.5.0"
 regex = "1.11.1"
 reqwest = { version = "0.12.22", features = ["json"] }
 serde = "1.0.219"
+serde_json = "1.0.132"
 serenity = "0.12.4"
 tera = "1.20.0"
 tokio = { version = "1.47.1", features = ["rt-multi-thread"] }

@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
+use llm::{chat::ChatMessage, error::LLMError, LLMProvider};
 use rapidfuzz::distance::levenshtein;
 use tera::Tera;
 use tracing::{error, info};
@@ -22,6 +22,7 @@ static TEMPLATER: LazyLock<Tera> =
 // Threshold for fuzzy matching
 // intentionally separate from its appearance in the other file
 const FUZZY_THRESHOLD: usize = 5;
+#[allow(clippy::borrowed_box)]
 pub async fn check_correct_answer(
     llm: &Box<dyn LLMProvider>,
     // TODO: maybe input the whole question with a mark of where we left off
@@ -74,22 +75,20 @@ pub async fn check_correct_answer(
     }
     // TODO: add "matches a subword"?
     // TODO: add word2vec
-    let messages = vec![
-        ChatMessage::user()
-            .content(
-                TEMPLATER
-                    .render(
-                        if prompted {
-                            "prompt_no_prompt.jinja"
-                        } else {
-                            "prompt.jinja"
-                        },
-                        &context,
-                    )
-                    .unwrap(),
-            )
-            .build(),
-    ];
+    let messages = vec![ChatMessage::user()
+        .content(
+            TEMPLATER
+                .render(
+                    if prompted {
+                        "prompt_no_prompt.jinja"
+                    } else {
+                        "prompt.jinja"
+                    },
+                    &context,
+                )
+                .unwrap(),
+        )
+        .build()];
 
     info!("Checking answer for question: {}", question_so_far);
     info!("Answer: {:?}", answer_key);
