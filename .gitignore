@@ -27,3 +27,4 @@ cobertura.xml
 # Temporary files
 *.tmp
 *.temp
+*.profraw

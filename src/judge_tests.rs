@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[cfg(not(tarpaulin))]
 mod judge_tests {
     use std::sync::LazyLock;
 
