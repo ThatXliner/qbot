@@ -1,6 +1,7 @@
 use ::serenity::all::{Mentionable, ReactionType};
 use poise::serenity_prelude as serenity;
 use std::collections::HashSet;
+use std::thread::sleep;
 
 use tokio::task;
 
@@ -74,6 +75,7 @@ pub async fn read_question(
                 let chunk = nth_chunk(&mut question, 5);
                 if chunk.is_empty() {
                     task::yield_now().await;
+                    sleep(Duration::from_secs(3));
                     if timeout(Duration::from_secs(5), state_change_rx.changed())
                         .await
                         .is_ok()

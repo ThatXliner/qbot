@@ -70,10 +70,10 @@ pub type Context<'a> = poise::Context<'a, Data, Error>;
 async fn tossup(
     ctx: Context<'_>,
     #[description = "Query for selecting the category"] query: Option<String>,
-    #[description = "Number of questions to read (1-10)"]
-    #[min = 1]
-    #[max = 10]
-    number: Option<u32>,
+    // #[description = "Number of questions to read (1-10)"]
+    // #[min = 1]
+    // #[max = 10]
+    // number: Option<u32>,
 ) -> Result<(), Error> {
     if ctx
         .data()
@@ -92,7 +92,8 @@ async fn tossup(
         return Ok(());
     }
 
-    let number_of_questions = number.unwrap_or(1);
+    let number_of_questions = 1;
+    // let number_of_questions = number.unwrap_or(1);
 
     let tossups = if let Some(query) = query {
         let mut parsed_results = parse_query(&query);

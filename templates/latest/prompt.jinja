@@ -12,7 +12,7 @@ Rules:
 - Accept shortened names (e.g. "packers" instead of "Green Bay Packers") only if unambiguous. If shortening causes ambiguity, respond with "PROMPT".
 - Do not infer or make deep connections beyond what is stated. Don't think too much about the question (if provided), just compare the contestant's answer to the answer key.
 - When deciding when or how to prompt, follow the answer key if directions are present. The answer key may also include clarifying questions to include when "PROMPT"
-- Always learn towards INCORRECT over PROMPT or ANTI-PROMPT
+- Always learn towards INCORRECT
 
 {{ question }}
 
@@ -25,4 +25,4 @@ Here is the answer key:
 {{ answer }}
 ```
 
-Judge, what is your response? Remember to be lenient on typos, but be strict on semantics
+Judge, what is your response? Remember, DO NOT ACCEPT ANYTHING THAT IS NOT STRICTLY SEMANTICALLY EQUIVALENT TO THE CORRECT ANSWER
