@@ -7,7 +7,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   IMAGE_NAME: qbot
-  IMAGE_TAGS: v0 ${{ github.sha }} latest
+  IMAGE_TAGS: latest
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
   REGISTRY_USER: ${{ github.actor }}
   REGISTRY_PASSWORD: ${{ github.token }}
@@ -85,15 +85,10 @@ jobs:
 
       - name: Build Docker image with cache
         run: |
-          TAG_ARGS=""
-          for tag in ${{ env.IMAGE_TAGS }}; do
-            TAG_ARGS="$TAG_ARGS -t ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:$tag"
-          done
-
           docker buildx build \
             --cache-from=type=local,src=/tmp/.buildx-cache \
             --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
-            $TAG_ARGS \
+            -t ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest\
             .
       # Push the image to GHCR (Image Registry)
       - name: Push To GHCR
