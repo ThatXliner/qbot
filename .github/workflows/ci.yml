@@ -85,10 +85,16 @@ jobs:
 
       - name: Build Docker image with cache
         run: |
+          TAG_ARGS=""
+          for tag in ${{ env.IMAGE_TAGS }}; do
+            TAG_ARGS="$TAG_ARGS -t ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:$tag"
+          done
+
           docker buildx build \
             --cache-from=type=local,src=/tmp/.buildx-cache \
             --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
-            -t app .
+            $TAG_ARGS \
+            .
       # Push the image to GHCR (Image Registry)
       - name: Push To GHCR
         uses: redhat-actions/push-to-registry@v2
