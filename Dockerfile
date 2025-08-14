@@ -8,7 +8,6 @@ WORKDIR /app
 # Copy the Cargo files first for better Docker layer caching
 COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
-COPY templates/ ./templates/
 # Build dependencies (this layer will be cached)
 RUN cargo build --release --jobs 1
 
@@ -19,6 +18,7 @@ RUN apt-get clean && \
 FROM alpine:3.22.1
 WORKDIR /app
 COPY --from=builder /app/target/release/qbot /app/qbot
+COPY templates/ ./templates/
 ENV RUST_LOG=info
 # IMPORTANT: service discovery by container name inside the task
 ENV OLLAMA_URL=http://ollama:11434
