@@ -22,4 +22,4 @@ COPY --from=builder /app/target/release/qbot /app/qbot
 ENV RUST_LOG=info
 # IMPORTANT: service discovery by container name inside the task
 ENV OLLAMA_URL=http://ollama:11434
-CMD ["./qbot"]
+CMD ["qbot"]
