@@ -75,7 +75,7 @@ pub async fn read_question(
                 let chunk = nth_chunk(&mut question, 5);
                 if chunk.is_empty() {
                     task::yield_now().await;
-                    sleep(Duration::from_secs(3));
+                    sleep(Duration::from_secs(1));
                     if timeout(Duration::from_secs(5), state_change_rx.changed())
                         .await
                         .is_ok()

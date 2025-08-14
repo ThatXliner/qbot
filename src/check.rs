@@ -21,7 +21,7 @@ static TEMPLATER: LazyLock<Tera> =
     LazyLock::new(|| Tera::new("templates/latest/*.jinja").expect("Failed to parse templates"));
 // Threshold for fuzzy matching
 // intentionally separate from its appearance in the other file
-const FUZZY_THRESHOLD: usize = 5;
+const FUZZY_THRESHOLD: f64 = 0.3;
 #[allow(clippy::borrowed_box)]
 pub async fn check_correct_answer(
     llm: &Box<dyn LLMProvider>,
@@ -53,7 +53,7 @@ pub async fn check_correct_answer(
     context.insert("answer", &answer_key.0);
     // Basic levenshtein distance
     let normalized_answer = ANSWER_RE.replace(&answer_key.1, "").into_owned();
-    if levenshtein::distance(
+    if levenshtein::normalized_distance(
         normalized_answer.to_lowercase().chars(),
         answer.to_lowercase().chars(),
     ) < FUZZY_THRESHOLD
@@ -65,7 +65,7 @@ pub async fn check_correct_answer(
         .captures_iter(&answer_key.0.replace("<b>", "").replace("</b>", ""))
         .map(|capture| capture.extract())
     {
-        if levenshtein::distance(
+        if levenshtein::normalized_distance(
             normalized_answer.to_lowercase().chars(),
             answer.to_lowercase().chars(),
         ) < FUZZY_THRESHOLD
