@@ -65,6 +65,7 @@ pub struct Data {
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Context<'a> = poise::Context<'a, Data, Error>;
 
+/// Type "buzz" to buzz in. Once buzzed in, you have 10 seconds to answer.
 #[poise::command(slash_command)]
 async fn tossup(
     ctx: Context<'_>,
