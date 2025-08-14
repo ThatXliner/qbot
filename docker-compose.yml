@@ -24,7 +24,7 @@ services:
         max-file: "3"
 
   qbot:
-    build: .
+    image: ghcr.io/thatxliner/qbot:main
     depends_on:
       - ollama
     environment:
