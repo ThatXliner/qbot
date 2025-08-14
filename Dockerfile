@@ -1,6 +1,7 @@
-# Use the official Rust image as the base
 FROM rust:1.89 as builder
 
+
+LABEL org.opencontainers.image.source=https://github.com/ThatXliner/qbot
 # Set the working directory
 WORKDIR /app
 
@@ -12,7 +13,7 @@ COPY templates/ ./templates/
 RUN cargo build --release --jobs 1
 
 RUN apt-get clean && \
-  rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/*
 
 # Runtime
 FROM alpine:3.22.1
