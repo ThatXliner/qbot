@@ -9,13 +9,13 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
 # Build dependencies (this layer will be cached)
-RUN cargo build --release --jobs 1
+RUN cargo build --release --target x86_64-unknown-linux-musl --jobs 1
 
 RUN apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Runtime
-FROM debian:trixie-slim
+FROM alpine:3.22.1
 WORKDIR /app
 COPY --from=builder /app/target/release/qbot /app/qbot
 COPY templates/ ./templates/
