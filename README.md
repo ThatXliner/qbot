@@ -128,7 +128,7 @@ src/
 When a question is being read:
 
 1. **Question Progression**: Questions are read word-by-word in chunks
-2. **Buzzing**: React with 🤚 to buzz in and attempt an answer
+2. **Buzzing**: Type `buzz` to buzz in and attempt an answer
 3. **Answer Submission**: Type your answer after buzzing
 4. **AI Validation**: Answers are checked against the correct answer using LLM
 5. **Feedback**: Get immediate feedback on correctness with explanations
