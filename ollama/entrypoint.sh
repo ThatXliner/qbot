@@ -12,8 +12,11 @@ INTERVAL=1    # poll every second
 ELAPSED=0
 
 echo "Waiting for Ollama server to be ready..."
-while ! curl -s http://localhost:11434 >/dev/null 2>&1; do
+while ! curl -s http://0.0.0.0:11434 >/dev/null 2>&1; do
     sleep $INTERVAL
+    echo "Waiting for Ollama server to be ready..."
+    curl http://0.0.0.0:11434
+    echo $?
     ELAPSED=$((ELAPSED + INTERVAL))
     if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
         echo "Error: Ollama server did not start within $MAX_WAIT seconds."

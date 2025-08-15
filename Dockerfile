@@ -14,7 +14,7 @@ RUN apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Runtime
-FROM debian:trixie-slim
+FROM debian:trixie
 WORKDIR /app
 COPY --from=builder /app/target/release/qbot /app/qbot
 COPY templates/ ./templates/

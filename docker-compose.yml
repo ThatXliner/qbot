@@ -12,21 +12,13 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: "1024M"
-        reservations:
-          cpus: "0.5"
-          memory: "4G"
 
   qbot:
     image: ghcr.io/thatxliner/qbot:main
     depends_on:
       - ollama
     environment:
-      RUST_LOG: info
+      RUST_LOG: debug
       DISCORD_TOKEN: ${DISCORD_TOKEN}
     logging:
       driver: "json-file"
