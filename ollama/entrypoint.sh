@@ -24,6 +24,7 @@ done
 
 echo "Server is up, pulling model..."
 ollama pull qwen3:1.6b
+ollama pull nomic-embed-text
 
 # Wait for the server process to exit
 wait $SERVER_PID
