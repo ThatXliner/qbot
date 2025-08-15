@@ -23,7 +23,8 @@ while ! curl -s http://0.0.0.0:11434 >/dev/null 2>&1; do
 done
 
 echo "Server is up, pulling model..."
-ollama pull qwen3:1.6b
+ollama pull qwen3:1.7b
+ollama pull nomic-embed-text
 
 # Wait for the server process to exit
-exec wait $SERVER_PID
+wait $SERVER_PID
