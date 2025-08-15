@@ -331,6 +331,7 @@ pub async fn event_handler(
                         let _ = state.3.send(());
                         state.0 = match check_correct_answer(
                             &data.llm,
+                            &data.reqwest,
                             &current_state.4,
                             new_message.content.as_str(),
                             &current_state.3,
@@ -373,6 +374,7 @@ pub async fn event_handler(
 
                         state.0 = match check_correct_answer(
                             &data.llm,
+                            &data.reqwest,
                             &current_state.4,
                             new_message.content.as_str(),
                             &current_state.3,
