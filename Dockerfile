@@ -1,6 +1,5 @@
 FROM rust:1.89 as builder
 
-
 LABEL org.opencontainers.image.source=https://github.com/ThatXliner/qbot
 # Set the working directory
 WORKDIR /app

@@ -30,7 +30,7 @@ services:
     environment:
       RUST_LOG: info
       OLLAMA_URL: "http://ollama:11434"
-      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DISCORD_TOKEN: ${DISCORD_BOT_TOKEN}
     logging:
       driver: "json-file"
       options:
