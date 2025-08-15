@@ -15,9 +15,9 @@ RUN apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Runtime
-FROM alpine:3.22.1
+FROM scratch
 WORKDIR /app
-COPY --from=builder /app/target/release/qbot /app/qbot
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/qbot /app/qbot
 COPY templates/ ./templates/
 ENV RUST_LOG=info
 # IMPORTANT: service discovery by container name inside the task
