@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   ollama:
-    build: ./ollama
+    build: ghcr.io/thatxliner/ollama:main
     ports:
       - "11434:11434"
     environment:
