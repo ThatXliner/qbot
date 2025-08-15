@@ -26,4 +26,4 @@ echo "Server is up, pulling model..."
 ollama pull qwen3:1.6b
 
 # Wait for the server process to exit
-wait $SERVER_PID
+exec wait $SERVER_PID

@@ -21,4 +21,6 @@ COPY templates/ ./templates/
 ENV RUST_LOG=info
 # IMPORTANT: service discovery by container name inside the task
 ENV OLLAMA_URL=http://ollama:11434
-CMD ["/app/qbot"]
+COPY entrypoint.sh /entrypoint.sh
+
+ENTRYPOINT ["/app/qbot"]
