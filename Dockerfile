@@ -1,6 +1,5 @@
 FROM rust:1.89 as builder
 
-
 LABEL org.opencontainers.image.source=https://github.com/ThatXliner/qbot
 # Set the working directory
 WORKDIR /app
@@ -21,5 +20,5 @@ COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/qbot /app/qbot
 COPY templates/ ./templates/
 ENV RUST_LOG=info
 # IMPORTANT: service discovery by container name inside the task
-ENV OLLAMA_URL=http://ollama:11434
-CMD ["/app/qbot"]
+
+ENV OLLAMA_URL=http://0.0.0.0:11434

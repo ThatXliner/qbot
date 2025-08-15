@@ -25,6 +25,31 @@ Install the bot now here: https://discord.com/oauth2/authorize?client_id=1404873
 
 ### Installation
 
+### With Docker
+
+Simply just clone the repository:
+
+```bash
+git clone https://github.com/ThatXliner/qbot.git
+cd qbot
+```
+
+Then run:
+
+```bash
+docker-compose up -d -e DISCORD_TOKEN=$DISCORD_TOKEN
+```
+
+Or the following in 2 different tabs (no repository cloning needed):
+
+```bash
+docker run -it --rm -e DISCORD_TOKEN=$DISCORD_TOKEN ghcr.io/thatxliner/qbot:main
+```
+```bash
+docker run -it --rm ghcr.io/thatxliner/ollama:main
+```
+
+### Manually
 1. **Clone the repository**:
    ```bash
    git clone https://github.com/ThatXliner/qbot.git
@@ -68,7 +93,7 @@ Install the bot now here: https://discord.com/oauth2/authorize?client_id=1404873
 
 ```bash
 /tossup query:Biology                    # Biology questions
-/tossup query:Science + History          # Science OR History questions  
+/tossup query:Science + History          # Science OR History questions
 /tossup query:Biology & Chemistry        # Questions tagged as both
 /tossup query:Science - Math             # Science excluding Math
 /tossup query:(Biology + Chemistry) - Math number:3  # 3 questions, Biology or Chemistry but no Math
@@ -84,7 +109,7 @@ cargo test -- --skip judge_tests
 
 # Run specific test modules
 cargo test utils_tests
-cargo test qb_tests  
+cargo test qb_tests
 cargo test query_tests
 
 # Run with coverage
@@ -116,7 +141,7 @@ The project uses:
 src/
 ├── main.rs           # Bot setup and Discord commands
 ├── query.rs          # Query language parser and processor
-├── qb.rs            # QBReader API client and data structures  
+├── qb.rs            # QBReader API client and data structures
 ├── read.rs          # Interactive question reading logic
 ├── check.rs         # AI-powered answer validation
 ├── utils.rs         # Utility functions for text processing
@@ -128,7 +153,7 @@ src/
 When a question is being read:
 
 1. **Question Progression**: Questions are read word-by-word in chunks
-2. **Buzzing**: React with 🤚 to buzz in and attempt an answer
+2. **Buzzing**: Type `buzz` to buzz in and attempt an answer
 3. **Answer Submission**: Type your answer after buzzing
 4. **AI Validation**: Answers are checked against the correct answer using LLM
 5. **Feedback**: Get immediate feedback on correctness with explanations
