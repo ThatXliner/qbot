@@ -12,6 +12,14 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "1024M"
+        reservations:
+          cpus: "0.5"
+          memory: "4G"
 
   qbot:
     image: ghcr.io/thatxliner/qbot:main
@@ -25,14 +33,14 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: "0.5"
-    #       memory: "1024M"
-    #     reservations:
-    #       cpus: "0.5"
-    #       memory: "1024M"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "1024M"
+        reservations:
+          cpus: "0.5"
+          memory: "1024M"
 
 volumes:
   ollama-models:
