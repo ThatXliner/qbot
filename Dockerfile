@@ -15,7 +15,7 @@ RUN apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Runtime
-FROM alpine:3.22.1
+FROM debian:trixie-slim
 WORKDIR /app
 COPY --from=builder /app/target/release/qbot /app/qbot
 COPY templates/ ./templates/
