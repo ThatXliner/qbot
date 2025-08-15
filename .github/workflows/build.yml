@@ -22,8 +22,8 @@ jobs:
       matrix:
         image:
           [
-            ["ghcr.io/thatxliner/qbot", "."],
-            ["ghcr.io/thatxliner/ollama", "./ollama"],
+            ["ghcr.io/thatxliner/qbot", "{{defaultContext}}"],
+            ["ghcr.io/thatxliner/ollama", "{{defaultContext}}:ollama"],
           ]
     steps:
       - name: Checkout repository
