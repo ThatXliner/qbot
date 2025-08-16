@@ -1,9 +1,7 @@
 {
   "family": "qbot-task",
-  "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
-  "cpu": "1024",
-  "memory": "2048",
+  "networkMode": "bridge",
+  "requiresCompatibilities": ["EC2"],
   "executionRoleArn": "arn:aws:iam::{AWS_ACCOUNT_ID}:role/ecsTaskExecutionRole",
   "taskRoleArn": "arn:aws:iam::{AWS_ACCOUNT_ID}:role/ecsTaskRole",
   "containerDefinitions": [
@@ -17,6 +15,7 @@
       "portMappings": [
         {
           "containerPort": 11434,
+          "hostPort": 0,
           "protocol": "tcp"
         }
       ],
@@ -52,7 +51,8 @@
         "timeout": 5,
         "retries": 3,
         "startPeriod": 60
-      }
+      },
+      "links": []
     },
     {
       "name": "qbot",
@@ -74,7 +74,7 @@
         },
         {
           "name": "OLLAMA_URL",
-          "value": "http://localhost:11434"
+          "value": "http://ollama:11434"
         }
       ],
       "secrets": [
@@ -91,7 +91,8 @@
           "awslogs-stream-prefix": "qbot",
           "awslogs-create-group": "true"
         }
-      }
+      },
+      "links": ["ollama"]
     }
   ],
   "volumes": [

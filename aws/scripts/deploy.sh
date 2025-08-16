@@ -17,6 +17,11 @@ STACK_NAME_INFRA="qbot-infrastructure"
 STACK_NAME_SERVICE="qbot-service"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 DISCORD_TOKEN="${DISCORD_TOKEN:-}"
+INSTANCE_TYPE="${INSTANCE_TYPE:-t3.medium}"
+KEY_PAIR_NAME="${KEY_PAIR_NAME:-}"
+MIN_SIZE="${MIN_SIZE:-1}"
+MAX_SIZE="${MAX_SIZE:-3}"
+DESIRED_CAPACITY="${DESIRED_CAPACITY:-1}"
 
 # Functions
 log() {
@@ -70,6 +75,11 @@ deploy_infrastructure() {
         --parameter-overrides \
             DiscordToken="$DISCORD_TOKEN" \
             ClusterName="qbot-cluster" \
+            InstanceType="$INSTANCE_TYPE" \
+            KeyPairName="$KEY_PAIR_NAME" \
+            MinSize="$MIN_SIZE" \
+            MaxSize="$MAX_SIZE" \
+            DesiredCapacity="$DESIRED_CAPACITY" \
         --capabilities CAPABILITY_NAMED_IAM \
         --region "$AWS_REGION" \
         --tags \

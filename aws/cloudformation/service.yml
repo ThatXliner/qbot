@@ -34,26 +34,12 @@ Resources:
         Fn::Sub: ${StackName}-ECSCluster
       TaskDefinition: !Ref TaskDefinitionArn
       DesiredCount: !Ref DesiredCount
-      LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          SecurityGroups:
-            - !ImportValue
-              'Fn::Sub': '${StackName}-ECSSecurityGroup'
-          Subnets:
-            - !Select 
-              - 0
-              - !Split 
-                - ","
-                - !ImportValue
-                  'Fn::Sub': '${StackName}-PrivateSubnets'
-            - !Select 
-              - 1
-              - !Split 
-                - ","
-                - !ImportValue
-                  'Fn::Sub': '${StackName}-PrivateSubnets'
-          AssignPublicIp: DISABLED
+      LaunchType: EC2
+      PlacementStrategies:
+        - Type: spread
+          Field: instanceId
+      PlacementConstraints:
+        - Type: distinctInstance
       DeploymentConfiguration:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
