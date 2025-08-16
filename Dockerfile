@@ -22,3 +22,5 @@ ENV RUST_LOG=info
 # IMPORTANT: service discovery by container name inside the task
 
 ENV OLLAMA_URL=http://0.0.0.0:11434
+
+ENTRYPOINT ["/app/qbot"]
