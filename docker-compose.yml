@@ -20,6 +20,7 @@ services:
     environment:
       RUST_LOG: debug
       DISCORD_TOKEN: ${DISCORD_TOKEN}
+      OLLAMA_URL: http://ollama:11434
     logging:
       driver: "json-file"
       options:
