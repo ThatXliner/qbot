@@ -18,6 +18,12 @@ FROM debian:trixie-slim
 WORKDIR /app
 COPY --from=builder /app/target/release/qbot /app/qbot
 COPY templates/ ./templates/
+
+# Slim doesn't contain trusted certificates
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV RUST_LOG=info
 # IMPORTANT: service discovery by container name inside the task
 ENV OLLAMA_URL=http://0.0.0.0:11434
