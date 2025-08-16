@@ -1,0 +1,112 @@
+{
+  "family": "qbot-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::{AWS_ACCOUNT_ID}:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::{AWS_ACCOUNT_ID}:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "ollama",
+      "image": "ghcr.io/thatxliner/ollama:main",
+      "essential": true,
+      "cpu": 512,
+      "memory": 1024,
+      "memoryReservation": 512,
+      "portMappings": [
+        {
+          "containerPort": 11434,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "OLLAMA_KEEP_ALIVE",
+          "value": "1h"
+        },
+        {
+          "name": "RUST_LOG",
+          "value": "info"
+        }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "ollama-models",
+          "containerPath": "/root/.ollama",
+          "readOnly": false
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/qbot",
+          "awslogs-region": "{AWS_REGION}",
+          "awslogs-stream-prefix": "ollama",
+          "awslogs-create-group": "true"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:11434 || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    },
+    {
+      "name": "qbot",
+      "image": "ghcr.io/thatxliner/qbot:main",
+      "essential": true,
+      "cpu": 512,
+      "memory": 1024,
+      "memoryReservation": 512,
+      "dependsOn": [
+        {
+          "containerName": "ollama",
+          "condition": "HEALTHY"
+        }
+      ],
+      "environment": [
+        {
+          "name": "RUST_LOG",
+          "value": "info"
+        },
+        {
+          "name": "OLLAMA_URL",
+          "value": "http://localhost:11434"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DISCORD_TOKEN",
+          "valueFrom": "arn:aws:ssm:{AWS_REGION}:{AWS_ACCOUNT_ID}:parameter/qbot/discord-token"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/qbot",
+          "awslogs-region": "{AWS_REGION}",
+          "awslogs-stream-prefix": "qbot",
+          "awslogs-create-group": "true"
+        }
+      }
+    }
+  ],
+  "volumes": [
+    {
+      "name": "ollama-models",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "{EFS_FILE_SYSTEM_ID}",
+        "rootDirectory": "/",
+        "transitEncryption": "ENABLED",
+        "transitEncryptionPort": 2049,
+        "authorizationConfig": {
+          "accessPointId": "{EFS_ACCESS_POINT_ID}",
+          "iam": "ENABLED"
+        }
+      }
+    }
+  ]
+}
