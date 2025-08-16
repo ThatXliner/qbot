@@ -74,7 +74,7 @@
         },
         {
           "name": "OLLAMA_URL",
-          "value": "http://ollama:11434"
+          "value": "http://0.0.0.0:11434"
         }
       ],
       "secrets": [
