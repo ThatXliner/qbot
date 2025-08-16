@@ -18,7 +18,7 @@ services:
     depends_on:
       - ollama
     environment:
-      RUST_LOG: debug
+      RUST_LOG: info
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       OLLAMA_URL: http://ollama:11434
     logging:
