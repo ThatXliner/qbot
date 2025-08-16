@@ -1,6 +1,6 @@
 # QBot AWS Deployment Files
 
-This directory contains all the necessary files for deploying QBot to AWS using ECS Fargate.
+This directory contains all the necessary files for deploying QBot to AWS using ECS with EC2 instances.
 
 ## 📁 Directory Structure
 
@@ -23,8 +23,14 @@ aws/
 # Validate configuration
 ./aws/scripts/validate.sh
 
-# Deploy to AWS
+# Deploy to AWS with default settings
 export DISCORD_TOKEN="your_token_here"
+./aws/scripts/deploy.sh
+
+# Deploy with custom EC2 settings
+export DISCORD_TOKEN="your_token_here"
+export INSTANCE_TYPE="t3.large"
+export KEY_PAIR_NAME="my-key-pair"  # Optional for SSH access
 ./aws/scripts/deploy.sh
 ```
 
@@ -44,15 +50,16 @@ To customize the deployment:
 
 The deployment creates:
 - VPC with public/private subnets across 2 AZs
-- ECS Fargate cluster running QBot and Ollama containers
+- ECS cluster with EC2 instances running QBot and Ollama containers
+- Auto Scaling Group managing EC2 instance capacity
 - EFS file system for persistent Ollama model storage
 - Systems Manager Parameter Store for secure Discord token storage
 - CloudWatch Logs for monitoring
 
 ## 💰 Estimated Cost
 
-- **Basic deployment**: ~$67/month
-- **High availability**: ~$150/month
+- **Basic deployment**: ~$67/month (t3.medium)
+- **High availability**: ~$134/month (2 x t3.medium)
 
 See [DEPLOY.md](../DEPLOY.md#cost-estimation) for detailed cost breakdown.
 

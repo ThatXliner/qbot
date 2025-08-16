@@ -1,6 +1,6 @@
 # 🚀 QBot AWS Deployment Guide
 
-This guide provides detailed instructions for deploying QBot Discord bot to AWS using Amazon ECS (Elastic Container Service) with Fargate.
+This guide provides detailed instructions for deploying QBot Discord bot to AWS using Amazon ECS (Elastic Container Service) with EC2 instances.
 
 ## 📋 Table of Contents
 
@@ -69,7 +69,7 @@ QBot runs on AWS using the following architecture:
 │  │  ┌─────────────────┐    ┌─────────────────────────────┐ │ │
 │  │  │  Public Subnet  │    │     Private Subnet          │ │ │
 │  │  │                 │    │  ┌─────────────────────────┐ │ │ │
-│  │  │   NAT Gateway   │    │  │       ECS Fargate       │ │ │ │
+│  │  │   NAT Gateway   │    │  │    EC2 Instances        │ │ │ │
 │  │  │                 │    │  │  ┌─────────┬─────────┐  │ │ │ │
 │  │  └─────────────────┘    │  │  │ QBot    │ Ollama  │  │ │ │ │
 │  │                         │  │  │Container│Container│  │ │ │ │
@@ -96,12 +96,13 @@ QBot runs on AWS using the following architecture:
 
 ### Key Components
 
-- **ECS Fargate**: Serverless container execution
+- **ECS with EC2**: Container execution on EC2 instances with auto-scaling
 - **VPC**: Isolated network with public/private subnets
 - **EFS**: Persistent storage for Ollama models
 - **Systems Manager**: Secure storage for Discord token
 - **CloudWatch**: Logging and monitoring
 - **NAT Gateway**: Outbound internet access for containers
+- **Auto Scaling Group**: Manages EC2 instance capacity automatically
 
 ## 🚀 Quick Start
 
@@ -216,35 +217,68 @@ The following environment variables are used:
 You can customize the deployment by modifying parameters:
 
 ```bash
-# Deploy with custom parameters
+# Deploy with custom EC2 parameters
+export DISCORD_TOKEN="your_token_here"
+export INSTANCE_TYPE="t3.large"        # Default: t3.medium
+export KEY_PAIR_NAME="my-key-pair"      # Optional: for SSH access
+export MIN_SIZE="1"                     # Default: 1
+export MAX_SIZE="5"                     # Default: 3
+export DESIRED_CAPACITY="2"             # Default: 1
+
+./aws/scripts/deploy.sh
+
+# Or manually deploy with CloudFormation
 aws cloudformation deploy \
   --template-file aws/cloudformation/infrastructure.yml \
   --stack-name qbot-infrastructure \
   --parameter-overrides \
     DiscordToken="$DISCORD_TOKEN" \
+    InstanceType="t3.large" \
+    KeyPairName="my-key-pair" \
+    MinSize="1" \
+    MaxSize="5" \
+    DesiredCapacity="2" \
     VpcCIDR="10.1.0.0/16" \
     ClusterName="my-qbot-cluster" \
   --capabilities CAPABILITY_NAMED_IAM
 ```
 
+### EC2 Instance Types
+
+Choose the appropriate instance type based on your needs:
+
+| Instance Type | vCPU | Memory | Network | Use Case |
+|---------------|------|---------|---------|----------|
+| `t3.small` | 2 | 2 GB | Up to 5 Gbps | Development/Testing |
+| `t3.medium` | 2 | 4 GB | Up to 5 Gbps | **Default - Light Production** |
+| `t3.large` | 2 | 8 GB | Up to 5 Gbps | Medium load |
+| `c5.large` | 2 | 4 GB | Up to 10 Gbps | CPU-intensive workloads |
+| `c5.xlarge` | 4 | 8 GB | Up to 10 Gbps | High-performance needs |
+
 ### Resource Sizing
 
-**Default Configuration:**
-- CPU: 1 vCPU (0.5 for each container)
-- Memory: 2 GB (1 GB for each container)
+**Default Configuration (per EC2 instance):**
+- Instance Type: t3.medium (2 vCPU, 4 GB RAM)
+- Container CPU: 512 CPU units each (QBot + Ollama)
+- Container Memory: 1 GB each (QBot + Ollama)
 - EFS: 20 MB/s provisioned throughput
 
-**To modify resources**, edit `aws/ecs/qbot-task-definition.json`:
+**To modify container resources**, edit `aws/ecs/qbot-task-definition.json`:
 
 ```json
 {
-  "cpu": "2048",     // 2 vCPU
-  "memory": "4096",  // 4 GB
   "containerDefinitions": [
     {
+      "name": "ollama",
+      "cpu": 1024,           // 1 vCPU for Ollama
+      "memory": 2048,        // 2 GB for Ollama
+      "memoryReservation": 1024
+    },
+    {
       "name": "qbot",
-      "cpu": 1024,        // 1 vCPU for QBot
-      "memory": 2048      // 2 GB for QBot
+      "cpu": 512,            // 0.5 vCPU for QBot
+      "memory": 1024,        // 1 GB for QBot
+      "memoryReservation": 512
     }
   ]
 }
@@ -376,30 +410,47 @@ ECS automatically performs rolling updates with zero downtime:
 
 ### Monthly Costs (us-east-1, as of 2024)
 
-**Minimal Setup (1 instance):**
-- ECS Fargate (1 vCPU, 2GB): ~$30/month
+**Minimal Setup (1 t3.medium instance):**
+- EC2 t3.medium: ~$30/month (24/7)
 - NAT Gateway: ~$32/month
 - EFS Storage (1GB): ~$0.30/month
 - Data Transfer: ~$5/month
 - **Total: ~$67/month**
 
-**High Availability (2 AZ, 2 instances):**
-- ECS Fargate (2 instances): ~$60/month
+**High Availability (2 t3.medium instances, multi-AZ):**
+- EC2 t3.medium (2 instances): ~$60/month
 - NAT Gateway (2): ~$64/month
 - EFS Storage: ~$0.30/month
-- ALB (if added): ~$16/month
 - Data Transfer: ~$10/month
-- **Total: ~$150/month**
+- **Total: ~$134/month**
+
+**Cost by Instance Type (per instance, 24/7):**
+| Instance Type | Monthly Cost | Use Case |
+|---------------|-------------|----------|
+| t3.small | ~$15 | Development |
+| t3.medium | ~$30 | **Default** |
+| t3.large | ~$60 | High load |
+| c5.large | ~$62 | CPU intensive |
 
 ### Cost Optimization Tips
 
-1. **Use Spot instances** for development:
-   ```yaml
-   # Add to service.yml
-   CapacityProviderStrategy:
-     - CapacityProvider: FARGATE_SPOT
-       Weight: 100
+1. **Use Spot instances** for development (up to 70% savings):
+   ```bash
+   # Modify LaunchTemplate in infrastructure.yml
+   InstanceMarketOptions:
+     MarketType: spot
+     SpotOptions:
+       MaxPrice: "0.05"  # Max price per hour
    ```
+
+2. **Schedule instances** for development:
+   - Stop instances outside business hours
+   - Use Lambda + EventBridge for automation
+
+3. **Right-size instances**:
+   - Start with t3.small for testing
+   - Monitor CloudWatch metrics
+   - Scale up only when needed
 
 2. **Reduce NAT Gateway costs**:
    - Use VPC Endpoints for AWS services
@@ -439,14 +490,38 @@ ECSSecurityGroup:
     - IpProtocol: -1
       CidrIp: 0.0.0.0/0  # Required for Discord API and Docker pulls
 
-# EFS Security Group - Only allows NFS from ECS
+# EC2 Security Group - For ECS container instances
+EC2SecurityGroup:
+  SecurityGroupIngress:
+    - IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 0.0.0.0/0  # SSH access (restrict to your IP for security)
+    - IpProtocol: tcp
+      FromPort: 32768
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref ECSSecurityGroup  # Dynamic ports for containers
+  SecurityGroupEgress:
+    - IpProtocol: -1
+      CidrIp: 0.0.0.0/0  # Required for Docker pulls, OS updates
+
+# EFS Security Group - Only allows NFS from ECS and EC2
 EFSSecurityGroup:
   SecurityGroupIngress:
     - IpProtocol: tcp
       FromPort: 2049
       ToPort: 2049
       SourceSecurityGroupId: !Ref ECSSecurityGroup
+    - IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      SourceSecurityGroupId: !Ref EC2SecurityGroup
 ```
+
+**Security Notes:**
+- SSH access is configured for all IPs (0.0.0.0/0) - **restrict this to your IP in production**
+- EC2 instances communicate with containers via dynamic ports (32768-65535)
+- EFS is only accessible from ECS tasks and EC2 instances in the security groups
 
 ## 🧹 Cleanup
 
