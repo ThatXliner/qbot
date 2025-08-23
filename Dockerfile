@@ -8,15 +8,15 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
 # Build dependencies (this layer will be cached)
-RUN cargo build --release --jobs 1
+RUN cargo build --release --target x86_64-unknown-linux-musl --jobs 1
 
 RUN apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Runtime
-FROM debian:trixie-slim
+FROM scratch
 WORKDIR /app
-COPY --from=builder /app/target/release/qbot /app/qbot
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/qbot /app/qbot
 COPY templates/ ./templates/
 
 # Slim doesn't contain trusted certificates
@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 ENV RUST_LOG=info
 # IMPORTANT: service discovery by container name inside the task
+
 ENV OLLAMA_URL=http://0.0.0.0:11434
 
 ENTRYPOINT ["/app/qbot"]
