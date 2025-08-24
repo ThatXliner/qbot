@@ -155,6 +155,7 @@ pub async fn read_question(
             }
             // nearly identical to Buzzed
             QuestionState::Prompt(user_id, prompt, _) => {
+                // TODO: figure out why it's sending this twice
                 channel
                     .say(&ctx.http(), format!("{} {}", prompt, user_id.mention()))
                     .await?;
