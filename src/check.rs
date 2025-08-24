@@ -22,7 +22,7 @@ static TEMPLATER: LazyLock<Tera> =
     LazyLock::new(|| Tera::new("templates/latest/*.jinja").expect("Failed to parse templates"));
 // Threshold for fuzzy matching
 // intentionally separate from its appearance in the other file
-const FUZZY_THRESHOLD: f64 = 0.3;
+const FUZZY_THRESHOLD: f64 = 0.1;
 fn cosine_similarity(a: &Vec<f32>, b: &Vec<f32>) -> f64 {
     let dot_product = a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
     let norm_a = a.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -62,7 +62,7 @@ async fn get_embedding(http: &reqwest::Client, text: &str) -> Result<Vec<f32>, r
     Ok(json_resp.embedding)
 }
 
-const ENABLE_LEVENSHTEIN_DISTANCE: bool = false;
+const ENABLE_LEVENSHTEIN_DISTANCE: bool = true;
 const ENABLE_EMBEDDING_DISTANCE: bool = false;
 #[allow(clippy::borrowed_box)]
 pub async fn check_correct_answer(
