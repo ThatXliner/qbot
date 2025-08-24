@@ -22,7 +22,7 @@ static TEMPLATER: LazyLock<Tera> =
     LazyLock::new(|| Tera::new("templates/latest/*.jinja").expect("Failed to parse templates"));
 // Threshold for fuzzy matching
 // intentionally separate from its appearance in the other file
-const FUZZY_THRESHOLD: f64 = 0.3;
+const FUZZY_THRESHOLD: f64 = 0.1;
 fn cosine_similarity(a: &Vec<f32>, b: &Vec<f32>) -> f64 {
     let dot_product = a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
     let norm_a = a.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -61,6 +61,9 @@ async fn get_embedding(http: &reqwest::Client, text: &str) -> Result<Vec<f32>, r
     let json_resp: EmbeddingResponse = resp.json().await?;
     Ok(json_resp.embedding)
 }
+
+const ENABLE_LEVENSHTEIN_DISTANCE: bool = true;
+const ENABLE_EMBEDDING_DISTANCE: bool = false;
 #[allow(clippy::borrowed_box)]
 pub async fn check_correct_answer(
     llm: &Box<dyn LLMProvider>,
@@ -97,50 +100,54 @@ pub async fn check_correct_answer(
     info!("Answer: {:?}", answer_key);
     info!("Normalized Answer: {}", normalized_answer);
     info!("User answer: {}", answer);
-    if levenshtein::normalized_distance(
-        normalized_answer.to_lowercase().chars(),
-        answer.to_lowercase().chars(),
-    ) < FUZZY_THRESHOLD
-    {
-        info!("Levenshtein distance is below threshold");
-        return Ok(Response::Correct);
-    };
-    // Levenshtein distance on extracted subword
-    for (_, [sub_normalized_answer]) in EXTRACT_SUB
-        .captures_iter(&answer_key.0.replace("<b>", "").replace("</b>", ""))
-        .map(|capture| capture.extract())
-    {
-        // TODO: make sure this wasn't being surrounded by "prompt on"
-        // (use the LLM)
+    if ENABLE_LEVENSHTEIN_DISTANCE {
         if levenshtein::normalized_distance(
-            sub_normalized_answer.to_lowercase().chars(),
+            normalized_answer.to_lowercase().chars(),
             answer.to_lowercase().chars(),
         ) < FUZZY_THRESHOLD
         {
-            info!(
-                "Checked sub answer {} and levenshtein distance is below threshold",
-                sub_normalized_answer
-            );
+            info!("Levenshtein distance is below threshold");
             return Ok(Response::Correct);
+        };
+        // Levenshtein distance on extracted subword
+        for (_, [sub_normalized_answer]) in EXTRACT_SUB
+            .captures_iter(&answer_key.0.replace("<b>", "").replace("</b>", ""))
+            .map(|capture| capture.extract())
+        {
+            // TODO: make sure this wasn't being surrounded by "prompt on"
+            // (use the LLM)
+            if levenshtein::normalized_distance(
+                sub_normalized_answer.to_lowercase().chars(),
+                answer.to_lowercase().chars(),
+            ) < FUZZY_THRESHOLD
+            {
+                info!(
+                    "Checked sub answer {} and levenshtein distance is below threshold",
+                    sub_normalized_answer
+                );
+                return Ok(Response::Correct);
+            }
         }
     }
-    let similarity = cosine_similarity(
-        &get_embedding(&http, &answer)
-            .await
-            .map_err(|e| LLMError::HttpError(format!("{:?}", e)))?,
-        &get_embedding(&http, &normalized_answer)
-            .await
-            .map_err(|e| LLMError::HttpError(format!("{:?}", e)))?,
-    );
-    if similarity >= 0.9 {
-        info!("It's semantically similar enough");
-        return Ok(Response::Correct);
-    }
-    if similarity >= 0.8 {
-        return Ok(Response::Prompt("PROMPT".to_string()));
+    if ENABLE_EMBEDDING_DISTANCE {
+        let similarity = cosine_similarity(
+            &get_embedding(&http, &answer)
+                .await
+                .map_err(|e| LLMError::HttpError(format!("{:?}", e)))?,
+            &get_embedding(&http, &normalized_answer)
+                .await
+                .map_err(|e| LLMError::HttpError(format!("{:?}", e)))?,
+        );
+        if similarity >= 0.9 {
+            info!("It's semantically similar enough");
+            return Ok(Response::Correct);
+        }
+        if similarity >= 0.8 {
+            return Ok(Response::Prompt("PROMPT".to_string()));
+        }
+        info!("Similarity: {} | insufficient", similarity);
     }
 
-    info!("Similarity: {} | insufficient", similarity);
     // if answer_key.0.contains("prompt") {
     let messages = vec![ChatMessage::user()
         .content(
