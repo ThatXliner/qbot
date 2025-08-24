@@ -472,7 +472,7 @@ async fn query(
 async fn main() {
     tracing_subscriber::fmt::init();
     let token = std::env::var("DISCORD_TOKEN").expect("missing DISCORD_TOKEN");
-    let ollama_base_url = std::env::var("OLLAMA_URL").unwrap_or("http://127.0.0.1:11434".into());
+    let gemini_api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
     let intents =
         serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT;
 
@@ -491,14 +491,14 @@ async fn main() {
                     reqwest: reqwest::Client::new(),
                     reading_states: Arc::new(Mutex::new(HashMap::new())),
                     llm: LLMBuilder::new()
-                        .backend(LLMBackend::Ollama) // Use Ollama as the LLM backend
-                        .base_url(ollama_base_url) // Set the Ollama server URL
-                        .model("qwen3:1.7b")
+                        .backend(LLMBackend::Google) // Use Google as the LLM backend
+                        .api_key(gemini_api_key)
+                        .model("gemini-2.5-flash")
                         .max_tokens(1000) // Set maximum response length
                         .temperature(0.7) // Control response randomness (0.0-1.0)
                         .stream(false) // Disable streaming responses
                         .build()
-                        .expect("Failed to build LLM (Ollama)"),
+                        .expect("Failed to build LLM (Google)"),
                 })
             })
         })
