@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  ollama:
+    image: ghcr.io/thatxliner/ollama:main
+    environment:
+      OLLAMA_KEEP_ALIVE: "1h"
+    volumes:
+      - ollama-models:/root/.ollama
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  qbot:
+    image: ghcr.io/thatxliner/qbot:main
+    depends_on:
+      - ollama
+    environment:
+      RUST_LOG: info
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      OLLAMA_URL: http://ollama:11434
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "0.5"
+    #       memory: "1024M"
+    #     reservations:
+    #       cpus: "0.5"
+    #       memory: "1024M"
+
+volumes:
+  ollama-models:
