@@ -227,7 +227,12 @@ pub async fn check_correct_answer(
                         error!("Judge did not respond with 'INCORRECT' or 'CORRECT' to prompt, but instead: {}", text);
                         Response::Incorrect(raw)
                     } else {
-                        Response::Prompt(text.to_string())
+                        let trimmed_text = text.trim();
+                        if trimmed_text.len() == 0 {
+                            Response::Prompt("PROMPT".to_string())
+                        } else {
+                            Response::Prompt(trimmed_text.to_string())
+                        }
                     }
                     // If the response starts with "PROMPT: ", we extract the prompt
                     // Otherwise, we just return the response as a prompt
