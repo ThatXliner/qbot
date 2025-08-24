@@ -3,6 +3,7 @@ use llm::LLMProvider;
 use poise::{send_reply, serenity_prelude as serenity, CreateReply};
 use tracing::debug;
 
+use crate::check::healthcheck;
 use crate::qb::{random_tossup, Tossup};
 use crate::query::{parse_query, ApiQuery, QueryError, CATEGORIES};
 use crate::read::{event_handler, read_question};
@@ -472,10 +473,35 @@ async fn query(
 async fn main() {
     tracing_subscriber::fmt::init();
     let token = std::env::var("DISCORD_TOKEN").expect("missing DISCORD_TOKEN");
-    let gemini_api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let gemini_api_key = std::env::var("GEMINI_API_KEY").ok();
+    let ollama_base_url = std::env::var("OLLAMA_URL").unwrap_or("http://127.0.0.1:11434".into());
     let intents =
         serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT;
-
+    let reqwest = reqwest::Client::new();
+    let llm = if let Some(api_key) = gemini_api_key {
+        LLMBuilder::new()
+            .backend(LLMBackend::Google) // Use Google as the LLM backend
+            .api_key(api_key)
+            .model("gemini-2.5-flash")
+            .max_tokens(1000) // Set maximum response length
+            .temperature(0.7) // Control response randomness (0.0-1.0)
+            .stream(false) // Disable streaming responses
+            .build()
+            .expect("Failed to build LLM (Google)")
+    } else {
+        if !healthcheck(&reqwest, &ollama_base_url).await {
+            panic!("Ollama is not running");
+        }
+        LLMBuilder::new()
+            .backend(LLMBackend::Ollama) // Use Ollama as the LLM backend
+            .base_url(&ollama_base_url) // Set the Ollama server URL
+            .model("qwen3:1.7b")
+            .max_tokens(1000) // Set maximum response length
+            .temperature(0.7) // Control response randomness (0.0-1.0)
+            .stream(false) // Disable streaming responses
+            .build()
+            .expect("Failed to build LLM (Ollama)")
+    };
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![tossup(), categories(), help(), query()],
@@ -488,17 +514,9 @@ async fn main() {
             Box::pin(async move {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                 Ok(Data {
-                    reqwest: reqwest::Client::new(),
+                    reqwest,
                     reading_states: Arc::new(Mutex::new(HashMap::new())),
-                    llm: LLMBuilder::new()
-                        .backend(LLMBackend::Google) // Use Google as the LLM backend
-                        .api_key(gemini_api_key)
-                        .model("gemini-2.5-flash")
-                        .max_tokens(1000) // Set maximum response length
-                        .temperature(0.7) // Control response randomness (0.0-1.0)
-                        .stream(false) // Disable streaming responses
-                        .build()
-                        .expect("Failed to build LLM (Google)"),
+                    llm,
                 })
             })
         })
