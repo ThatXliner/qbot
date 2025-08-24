@@ -57,7 +57,8 @@ jobs:
         run: cargo tarpaulin --verbose --workspace --timeout 120 --skip-clean --out xml --exclude-files src/judge_tests.rs
 
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           file: ./cobertura.xml
           fail_ci_if_error: false
