@@ -39,8 +39,25 @@ struct EmbeddingRequest {
 struct EmbeddingResponse {
     embedding: Vec<f32>,
 }
+pub async fn healthcheck(http: &reqwest::Client, url: &str) -> bool {
+    let Ok(resp) = http
+        .get(url)
+        .send()
+        .await
+        .and_then(|x| x.error_for_status())
+    else {
+        return false;
+    };
+
+    let Ok(resp) = resp.text().await else {
+        return false;
+    };
+    resp == "Ollama is running"
+}
+
 // we hardcode this bois
 async fn get_embedding(http: &reqwest::Client, text: &str) -> Result<Vec<f32>, reqwest::Error> {
+    // TODO: Gemini support
     let url = format!(
         "{}/api/embeddings",
         std::env::var("OLLAMA_URL").unwrap_or("http://127.0.0.1:11434".into())
@@ -62,8 +79,31 @@ async fn get_embedding(http: &reqwest::Client, text: &str) -> Result<Vec<f32>, r
     Ok(json_resp.embedding)
 }
 
-const ENABLE_LEVENSHTEIN_DISTANCE: bool = true;
-const ENABLE_EMBEDDING_DISTANCE: bool = false;
+fn env_var_is_true(v: &str) -> bool {
+    v.to_lowercase().as_bytes()[0] == b't' || v == "1"
+}
+
+const ENABLE_LEVENSHTEIN_DISTANCE: LazyLock<bool> = LazyLock::new(|| {
+    if let Ok(v) = std::env::var("ENABLE_LEVENSHTEIN_DISTANCE") {
+        env_var_is_true(&v)
+    } else {
+        true
+    }
+});
+const ENABLE_EMBEDDING_DISTANCE: LazyLock<bool> = LazyLock::new(|| {
+    if let Ok(v) = std::env::var("ENABLE_EMBEDDING_DISTANCE") {
+        env_var_is_true(&v)
+    } else {
+        true
+    }
+});
+const ENABLE_LLM_CHECKS: LazyLock<bool> = LazyLock::new(|| {
+    if let Ok(v) = std::env::var("ENABLE_LLM_CHECKS") {
+        env_var_is_true(&v)
+    } else {
+        true
+    }
+});
 #[allow(clippy::borrowed_box)]
 pub async fn check_correct_answer(
     llm: &Box<dyn LLMProvider>,
@@ -75,7 +115,10 @@ pub async fn check_correct_answer(
     answer_key: &(String, String),
     // TODO: account for this in the prompt
     prompted: bool,
-) -> Result<Response, LLMError> {
+) -> Result<Response, String> {
+    if !*ENABLE_LLM_CHECKS && !*ENABLE_EMBEDDING_DISTANCE && !*ENABLE_LEVENSHTEIN_DISTANCE {
+        return Err("No checks enabled".into());
+    }
     // TODO: normalize digits
     let mut context = tera::Context::new();
     context.insert(
@@ -100,7 +143,7 @@ pub async fn check_correct_answer(
     info!("Answer: {:?}", answer_key);
     info!("Normalized Answer: {}", normalized_answer);
     info!("User answer: {}", answer);
-    if ENABLE_LEVENSHTEIN_DISTANCE {
+    if *ENABLE_LEVENSHTEIN_DISTANCE {
         if levenshtein::normalized_distance(
             normalized_answer.to_lowercase().chars(),
             answer.to_lowercase().chars(),
@@ -129,14 +172,14 @@ pub async fn check_correct_answer(
             }
         }
     }
-    if ENABLE_EMBEDDING_DISTANCE {
+    if *ENABLE_EMBEDDING_DISTANCE {
         let similarity = cosine_similarity(
             &get_embedding(&http, &answer)
                 .await
-                .map_err(|e| LLMError::HttpError(format!("{:?}", e)))?,
+                .map_err(|e| format!("{:?}", e))?,
             &get_embedding(&http, &normalized_answer)
                 .await
-                .map_err(|e| LLMError::HttpError(format!("{:?}", e)))?,
+                .map_err(|e| format!("{:?}", e))?,
         );
         if similarity >= 0.9 {
             info!("It's semantically similar enough");
@@ -147,31 +190,31 @@ pub async fn check_correct_answer(
         }
         info!("Similarity: {} | insufficient", similarity);
     }
+    if *ENABLE_LLM_CHECKS {
+        // if answer_key.0.contains("prompt") {
+        let messages = vec![ChatMessage::user()
+            .content(
+                TEMPLATER
+                    .render(
+                        if prompted {
+                            "prompt_no_prompt.jinja"
+                        } else {
+                            "prompt.jinja"
+                        },
+                        &context,
+                    )
+                    .unwrap(),
+            )
+            .build()];
 
-    // if answer_key.0.contains("prompt") {
-    let messages = vec![ChatMessage::user()
-        .content(
-            TEMPLATER
-                .render(
-                    if prompted {
-                        "prompt_no_prompt.jinja"
-                    } else {
-                        "prompt.jinja"
-                    },
-                    &context,
-                )
-                .unwrap(),
-        )
-        .build()];
-
-    llm.chat(&messages)
+        llm.chat(&messages)
         .await
         .map(|response| response.text().expect("LLM did not respond"))
-        .map(|text|{
+        .map(|text| {
             info!("LLM raw response: {}", text);
             (text.clone(),PROMPT_RE.replace(&text,"").into_owned())
         })
-        .map(|(raw,text)| {
+        .map(|(raw, text)| {
             let response = text.trim();
             info!("LLM response: {}", response);
 
@@ -197,9 +240,10 @@ pub async fn check_correct_answer(
                 }
             }
         })
-    // } else {
-    // Ok(Response::Incorrect(
-    // "(Insufficiently close + no instructions to prompt)".into(),
-    // ))
-    // }
+        .map_err(|x| format!("{}", x))
+    } else {
+        Ok(Response::Incorrect(
+            "All other checks failed (LLM is disabled)".into(),
+        ))
+    }
 }

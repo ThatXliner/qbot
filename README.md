@@ -21,9 +21,9 @@ Install the bot now here: https://discord.com/oauth2/authorize?client_id=1404873
 
 - [Rust](https://rustup.rs/) (latest stable version)
 - Discord bot token
-- (Optional) Ollama server for AI answer checking
+- (Optional) Gemini or host locally with Ollama for AI answer checking
 
-### Installation
+### Usage
 
 ### With Docker
 
@@ -35,18 +35,14 @@ cd qbot
 ```
 
 Then run:
-
 ```bash
-docker-compose up -d -e DISCORD_TOKEN=$DISCORD_TOKEN
+docker run -it --rm -e DISCORD_TOKEN=$DISCORD_TOKEN -e GEMINI_API_KEY=$GEMINI_API_KEY ghcr.io/thatxliner/qbot:main
 ```
-
-Or the following in 2 different tabs (no repository cloning needed):
+Or, if you want to use Ollama instead:
 
 ```bash
-docker run -it --rm -e DISCORD_TOKEN=$DISCORD_TOKEN ghcr.io/thatxliner/qbot:main
-```
-```bash
-docker run -it --rm ghcr.io/thatxliner/ollama:main
+docker compose pull
+docker compose up -d -e DISCORD_TOKEN=$DISCORD_TOKEN
 ```
 
 ### Manually
@@ -64,7 +60,12 @@ docker run -it --rm ghcr.io/thatxliner/ollama:main
 3. **Set up environment variables**:
    ```bash
    export DISCORD_TOKEN="your_discord_bot_token"
-   export OLLAMA_URL="http://127.0.0.1:11434"  # Optional, for AI features
+   export GEMINI_API_KEY="your_gemini_api_key"  # Optional, for Gemini
+   export OLLAMA_URL="http://127.0.0.1:11434"  # Optional, for Ollama. Default is http://127.0.0.1:11434
+   export ENABLE_LEVENSHTEIN_DISTANCE="true"  # True by default
+   export ENABLE_EMBEDDING_DISTANCE="false"  # Requires Ollama, false by default
+   export ENABLE_LLM_CHECKS="true"  # Requires Gemini, true by default
+   # If you enable LLM checks but you didn't provide a Gemini API key and Ollama isn't running, then the program will fail.
    ```
 
 4. **Run the bot**:
@@ -132,7 +133,7 @@ The project uses:
 - **Discord Integration**: `poise` and `serenity` for Discord bot functionality
 - **HTTP Client**: `reqwest` for QBReader API communication
 - **Query Processing**: Custom recursive descent parser
-- **AI Integration**: `llm` crate with Ollama backend support
+- **AI Integration**: `llm` crate; Google Gemini or host locally with Ollama
 - **Async Runtime**: `tokio` for async/await support
 
 ### Project Structure
@@ -205,6 +206,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [QBReader API Documentation](https://www.qbreader.org/api-docs)
 - [Query Language Documentation](QUERY_LANGUAGE.md)
 - [Discord Developer Portal](https://discord.com/developers/applications)
+- [Get a Google Gemini API Key](https://ai.google.dev/gemini-api/docs/api-key)
 - [Ollama Installation Guide](https://ollama.ai/)
 
 ---
