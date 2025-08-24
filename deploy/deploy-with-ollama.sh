@@ -1,2 +1,3 @@
 # Copy this onto the lightsail instance
-docker run -it -d --rm
+docker compose pull
+docker compose up -d -e DISCORD_TOKEN=$DISCORD_TOKEN
