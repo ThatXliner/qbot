@@ -157,10 +157,7 @@ pub async fn read_question(
             QuestionState::Prompt(user_id, prompt, _) => {
                 // TODO: figure out why it's sending this twice
                 channel
-                    .say(
-                        &ctx.http(),
-                        format!("PROMPT {} {}", prompt, user_id.mention()),
-                    )
+                    .say(&ctx.http(), format!("{} {}", prompt, user_id.mention()))
                     .await?;
                 task::yield_now().await;
                 // wait until the user answers or the timeout is reached
