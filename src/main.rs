@@ -20,6 +20,8 @@ mod check;
 mod integration_tests;
 #[cfg(test)]
 mod judge_tests;
+#[cfg(test)]
+mod mock_tests;
 mod qb;
 #[cfg(test)]
 mod qb_tests;
