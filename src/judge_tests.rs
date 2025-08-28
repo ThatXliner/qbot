@@ -3,22 +3,12 @@
 mod judge_tests {
     use std::sync::LazyLock;
 
-    use llm::{builder::LLMBuilder, LLMProvider};
+    use llm::LLMProvider;
 
-    use crate::check::*;
-
-    static LLM: LazyLock<Box<dyn LLMProvider>> = LazyLock::new(|| {
-        LLMBuilder::new()
-            .backend(llm::builder::LLMBackend::Ollama) // Use Ollama as the LLM backend
-            .base_url(std::env::var("OLLAMA_URL").unwrap_or("http://127.0.0.1:11434".into())) // Set the Ollama server URL
-            .model("qwen3:8b")
-            .max_tokens(1000) // Set maximum response length
-            .temperature(0.7) // Control response randomness (0.0-1.0)
-            .stream(false) // Disable streaming responses
-            .build()
-            .expect("Failed to build LLM (Ollama)")
-    });
+    use crate::{check::*, utils::get_llm_no_healthcheck};
     static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| reqwest::Client::new());
+    static LLM: LazyLock<Box<dyn LLMProvider>> = LazyLock::new(|| get_llm_no_healthcheck());
+
     fn e(a: &str, b: &str) -> (String, String) {
         (a.to_string(), b.to_string())
     }
@@ -158,18 +148,18 @@ mod judge_tests {
 
         assert!(matches!(result, Response::Incorrect(_)), "{:?}", result);
     }
-    // #[tokio::test]
-    // async fn test_real_case_8() {
-    //     let result = check_correct_answer(
-    //         &LLM,&HTTP,
-    //         r#"Users are given complete control over algorithms for this task through its namesake "activations." Shortly after landing, the Mars Pathfinder needed to be debugged from Earth due to an error in this task, during which a watchdog would periodically trigger system resets. The degree of flexibility allowed by algorithms for this task differentiates hard, firm, and soft real-time systems. In 2023, the EEVDF algorithm replaced the WFQ algorithm used for this task by a namesake (*) "Completely Fair" process in the Linux kernel. Operating systems may leverage run queues and multilevel feedback queues to achieve this task. Basic algorithms for this task include"#,
-    //         "Maxwell",
-    //         &e(r#"<b><u>Maxwell's Demon</u></b>"#, r#"Maxwell's Demon"#),
-    //         false,
-    //     )
-    //     .await
-    //     .unwrap();
 
-    //     assert!(matches!(result, Response::Incorrect(_)), "{:?}", result);
-    // }
+    #[tokio::test]
+    async fn test_real_case_8() {
+        let result = check_correct_answer(
+            &LLM,&HTTP,
+            r#"In the 6/8 ("six-eight") time finale of a piece with this English-language nickname, an abrupt shift from presto to adagio tempo occurs in the coda after a quarter rest with a fermata ("fur-MAH-tuh"), and is followed by shift back to presto. A violin plays a cadenza on whole tone scales in an F major piece usually known by this English name whose finale contains odd polytonal chords. This is the nickname of the second piece in the Opus 33 "Russian" quartets by Joseph Haydn. This is the usual English translation of the Italian name of a form that, thanks to Beethoven, replaced the minuet as the typical third movement of symphonies. This word provides the common English title of the K. 522 "Divertimento," which features a dissonant horn part and odd orchestration. This is the usual translation of the word scherzo ("SKAIRT-soh"). For 10 points, what noun titles the English name of a humorous piece by Mozart?"#,
+            "jokes",
+            &e(r#"jokes [or jests; accept musical joke; prompt on scherzos or scherzi or Spass by asking for the English translation; prompt on divertimento until "divertimento"]"#, r#"jokes [or jests; accept musical joke; prompt on scherzos or scherzi or Spass by asking for the English translation; prompt on divertimento until "divertimento"]"#),
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(result, Response::Correct), "{:?}", result);
+    }
 }

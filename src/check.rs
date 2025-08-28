@@ -22,7 +22,7 @@ static TEMPLATER: LazyLock<Tera> =
     LazyLock::new(|| Tera::new("templates/latest/*.jinja").expect("Failed to parse templates"));
 // Threshold for fuzzy matching
 // intentionally separate from its appearance in the other file
-const FUZZY_THRESHOLD: f64 = 0.1;
+const FUZZY_THRESHOLD: usize = 5;
 fn cosine_similarity(a: &Vec<f32>, b: &Vec<f32>) -> f64 {
     let dot_product = a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
     let norm_a = a.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -94,7 +94,7 @@ const ENABLE_EMBEDDING_DISTANCE: LazyLock<bool> = LazyLock::new(|| {
     if let Ok(v) = std::env::var("ENABLE_EMBEDDING_DISTANCE") {
         env_var_is_true(&v)
     } else {
-        true
+        false
     }
 });
 const ENABLE_LLM_CHECKS: LazyLock<bool> = LazyLock::new(|| {
@@ -144,7 +144,7 @@ pub async fn check_correct_answer(
     info!("Normalized Answer: {}", normalized_answer);
     info!("User answer: {}", answer);
     if *ENABLE_LEVENSHTEIN_DISTANCE {
-        if levenshtein::normalized_distance(
+        if levenshtein::distance(
             normalized_answer.to_lowercase().chars(),
             answer.to_lowercase().chars(),
         ) < FUZZY_THRESHOLD
@@ -159,7 +159,7 @@ pub async fn check_correct_answer(
         {
             // TODO: make sure this wasn't being surrounded by "prompt on"
             // (use the LLM)
-            if levenshtein::normalized_distance(
+            if levenshtein::distance(
                 sub_normalized_answer.to_lowercase().chars(),
                 answer.to_lowercase().chars(),
             ) < FUZZY_THRESHOLD

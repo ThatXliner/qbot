@@ -7,6 +7,7 @@ use crate::check::healthcheck;
 use crate::qb::{random_tossup, Tossup};
 use crate::query::{parse_query, ApiQuery, QueryError, CATEGORIES};
 use crate::read::{event_handler, read_question};
+use crate::utils::get_llm;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -478,30 +479,7 @@ async fn main() {
     let intents =
         serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT;
     let reqwest = reqwest::Client::new();
-    let llm = if let Some(api_key) = gemini_api_key {
-        LLMBuilder::new()
-            .backend(LLMBackend::Google) // Use Google as the LLM backend
-            .api_key(api_key)
-            .model("gemini-2.5-flash")
-            .max_tokens(1000) // Set maximum response length
-            .temperature(0.7) // Control response randomness (0.0-1.0)
-            .stream(false) // Disable streaming responses
-            .build()
-            .expect("Failed to build LLM (Google)")
-    } else {
-        if !healthcheck(&reqwest, &ollama_base_url).await {
-            panic!("Ollama is not running");
-        }
-        LLMBuilder::new()
-            .backend(LLMBackend::Ollama) // Use Ollama as the LLM backend
-            .base_url(&ollama_base_url) // Set the Ollama server URL
-            .model("qwen3:1.7b")
-            .max_tokens(1000) // Set maximum response length
-            .temperature(0.7) // Control response randomness (0.0-1.0)
-            .stream(false) // Disable streaming responses
-            .build()
-            .expect("Failed to build LLM (Ollama)")
-    };
+    let llm = get_llm(&reqwest).await;
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![tossup(), categories(), help(), query()],
