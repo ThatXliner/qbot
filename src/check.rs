@@ -23,6 +23,8 @@ static TEMPLATER: LazyLock<Tera> =
 // Threshold for fuzzy matching
 // intentionally separate from its appearance in the other file
 const FUZZY_THRESHOLD: usize = 5;
+const COSINE_UPPER_THRESHOLD: f64 = 0.9;
+const COSINE_PROMPT_THRESHOLD: f64 = 0.8;
 fn cosine_similarity(a: &Vec<f32>, b: &Vec<f32>) -> f64 {
     let dot_product = a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
     let norm_a = a.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -119,6 +121,16 @@ pub async fn check_correct_answer(
     if !*ENABLE_LLM_CHECKS && !*ENABLE_EMBEDDING_DISTANCE && !*ENABLE_LEVENSHTEIN_DISTANCE {
         return Err("No checks enabled".into());
     }
+    info!("Enabled answer checks:");
+    info!("LLM checks: {}", *ENABLE_LLM_CHECKS);
+    info!(
+        "Embedding distance checks: {}, thresholds: ({}, {})",
+        *ENABLE_EMBEDDING_DISTANCE, COSINE_UPPER_THRESHOLD, COSINE_PROMPT_THRESHOLD
+    );
+    info!(
+        "Levenshtein distance checks: {}, threshold: {}",
+        *ENABLE_LEVENSHTEIN_DISTANCE, FUZZY_THRESHOLD
+    );
     // TODO: normalize digits
     let mut context = tera::Context::new();
     context.insert(
@@ -144,14 +156,15 @@ pub async fn check_correct_answer(
     info!("Normalized Answer: {}", normalized_answer);
     info!("User answer: {}", answer);
     if *ENABLE_LEVENSHTEIN_DISTANCE {
-        if levenshtein::distance(
+        let distance = levenshtein::distance(
             normalized_answer.to_lowercase().chars(),
             answer.to_lowercase().chars(),
-        ) < FUZZY_THRESHOLD
-        {
+        );
+        if distance < FUZZY_THRESHOLD {
             info!("Levenshtein distance is below threshold");
             return Ok(Response::Correct);
         };
+        info!("Initial distance: {} | too high", distance);
         // Levenshtein distance on extracted subword
         for (_, [sub_normalized_answer]) in EXTRACT_SUB
             .captures_iter(&answer_key.0.replace("<b>", "").replace("</b>", ""))
@@ -159,17 +172,21 @@ pub async fn check_correct_answer(
         {
             // TODO: make sure this wasn't being surrounded by "prompt on"
             // (use the LLM)
-            if levenshtein::distance(
+            let distance = levenshtein::distance(
                 sub_normalized_answer.to_lowercase().chars(),
                 answer.to_lowercase().chars(),
-            ) < FUZZY_THRESHOLD
-            {
+            );
+            if distance < FUZZY_THRESHOLD {
                 info!(
                     "Checked sub answer {} and levenshtein distance is below threshold",
                     sub_normalized_answer
                 );
                 return Ok(Response::Correct);
             }
+            info!(
+                "Checked sub answer {} and levenshtein distance {} is too high",
+                sub_normalized_answer, distance
+            );
         }
     }
     if *ENABLE_EMBEDDING_DISTANCE {
@@ -181,11 +198,11 @@ pub async fn check_correct_answer(
                 .await
                 .map_err(|e| format!("{:?}", e))?,
         );
-        if similarity >= 0.9 {
+        if similarity >= COSINE_UPPER_THRESHOLD {
             info!("It's semantically similar enough");
             return Ok(Response::Correct);
         }
-        if similarity >= 0.8 {
+        if similarity >= COSINE_PROMPT_THRESHOLD {
             return Ok(Response::Prompt("PROMPT".to_string()));
         }
         info!("Similarity: {} | insufficient", similarity);
@@ -212,7 +229,8 @@ pub async fn check_correct_answer(
         .map(|response| response.text().expect("LLM did not respond"))
         .map(|text| {
             info!("LLM raw response: {}", text);
-            (text.clone(),PROMPT_RE.replace(&text,"").into_owned())
+            // Get rid of thinking tags
+            (text.clone(), PROMPT_RE.replace(&text, "").into_owned())
         })
         .map(|(raw, text)| {
             let response = text.trim();
