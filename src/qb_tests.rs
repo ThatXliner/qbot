@@ -2,6 +2,7 @@
 mod tests {
     use crate::qb::*;
     use crate::query::ApiQuery;
+    use url::Url;
 
     #[test]
     fn test_packet_serialization() {
@@ -281,5 +282,191 @@ mod tests {
         assert_eq!(tossup.difficulty, 4);
         assert_eq!(tossup.set.year, 2023);
         assert_eq!(tossup.packet.number, 1);
+    }
+
+    // Mock HTTP tests for QBReader API responses - focusing on JSON parsing
+    #[tokio::test] 
+    async fn test_mocked_random_tossup_success() {
+        // Test realistic QBReader API response parsing
+        let mock_response = r#"
+        {
+            "tossups": [
+                {
+                    "_id": "507f1f77bcf86cd799439011",
+                    "question": "This scientist's name is on a law that states the total entropy of an isolated system can never decrease.",
+                    "answer": "Rudolf Clausius",
+                    "category": "Science",
+                    "subcategory": "Physics", 
+                    "packet": {
+                        "_id": "packet123",
+                        "name": "Test Packet",
+                        "number": 1
+                    },
+                    "set": {
+                        "_id": "set456",
+                        "name": "Test Set 2023",
+                        "year": 2023,
+                        "standard": true
+                    },
+                    "updatedAt": "2023-01-01T00:00:00Z",
+                    "difficulty": 4,
+                    "number": 1,
+                    "answer_sanitized": "Rudolf Clausius",
+                    "question_sanitized": "This scientist's name is on a law that states the total entropy of an isolated system can never decrease."
+                }
+            ]
+        }
+        "#;
+        
+        // Test deserialization directly (this is the core functionality we want to test)
+        let parsed: Tossups = serde_json::from_str(mock_response).unwrap();
+        
+        assert_eq!(parsed.tossups.len(), 1);
+        assert_eq!(parsed.tossups[0].id, "507f1f77bcf86cd799439011");
+        assert_eq!(parsed.tossups[0].category, "Science");
+        assert_eq!(parsed.tossups[0].subcategory, "Physics");
+        assert_eq!(parsed.tossups[0].answer, "Rudolf Clausius");
+        assert_eq!(parsed.tossups[0].difficulty, 4);
+    }
+
+    #[test]
+    fn test_api_query_url_construction_comprehensive() {
+        let api_params = ApiQuery {
+            categories: vec!["Science".to_string(), "Literature".to_string()],
+            subcategories: vec!["Biology".to_string(), "Chemistry".to_string()],
+            alternate_subcategories: vec!["Math".to_string(), "Physics".to_string()],
+            number: 5,
+        };
+
+        let mut url = Url::parse("https://www.qbreader.org/api/random-tossup").unwrap();
+        
+        // Build URL just like the real function does
+        for category in &api_params.categories {
+            url.query_pairs_mut().append_pair("categories", category);
+        }
+        for subcategory in &api_params.subcategories {
+            url.query_pairs_mut().append_pair("subcategories", subcategory);
+        }
+        for alternate_subcategory in &api_params.alternate_subcategories {
+            url.query_pairs_mut().append_pair("alternateSubcategories", alternate_subcategory);
+        }
+        url.query_pairs_mut().append_pair("number", &api_params.number.to_string());
+
+        let url_str = url.as_str();
+        
+        // Verify all parameters are present
+        assert!(url_str.contains("categories=Science"));
+        assert!(url_str.contains("categories=Literature"));
+        assert!(url_str.contains("subcategories=Biology"));
+        assert!(url_str.contains("subcategories=Chemistry"));
+        assert!(url_str.contains("alternateSubcategories=Math"));
+        assert!(url_str.contains("alternateSubcategories=Physics"));
+        assert!(url_str.contains("number=5"));
+    }
+
+    #[test]
+    fn test_tossup_edge_cases() {
+        // Test with minimal valid data
+        let minimal_json = r#"
+        {
+            "tossups": [
+                {
+                    "_id": "minimal_id",
+                    "question": "",
+                    "answer": "",
+                    "category": "Science",
+                    "subcategory": "Physics",
+                    "packet": {
+                        "_id": "p1",
+                        "name": "P1",
+                        "number": 1
+                    },
+                    "set": {
+                        "_id": "s1",
+                        "name": "S1",
+                        "year": 2023,
+                        "standard": true
+                    },
+                    "updatedAt": "2023-01-01T00:00:00Z",
+                    "difficulty": 1,
+                    "number": 1,
+                    "answer_sanitized": "",
+                    "question_sanitized": ""
+                }
+            ]
+        }
+        "#;
+
+        let parsed: Tossups = serde_json::from_str(minimal_json).unwrap();
+        assert_eq!(parsed.tossups.len(), 1);
+        assert_eq!(parsed.tossups[0].question, "");
+        assert_eq!(parsed.tossups[0].answer, "");
+        assert_eq!(parsed.tossups[0].difficulty, 1);
+    }
+
+    #[test]
+    fn test_multiple_tossups_parsing() {
+        let multiple_json = r#"
+        {
+            "tossups": [
+                {
+                    "_id": "id1",
+                    "question": "Question 1",
+                    "answer": "Answer 1",
+                    "category": "Science",
+                    "subcategory": "Biology",
+                    "packet": {"_id": "p1", "name": "P1", "number": 1},
+                    "set": {"_id": "s1", "name": "S1", "year": 2023, "standard": true},
+                    "updatedAt": "2023-01-01T00:00:00Z",
+                    "difficulty": 3,
+                    "number": 1,
+                    "answer_sanitized": "Answer 1",
+                    "question_sanitized": "Question 1"
+                },
+                {
+                    "_id": "id2",
+                    "question": "Question 2",
+                    "answer": "Answer 2",
+                    "category": "History",
+                    "subcategory": "American History",
+                    "packet": {"_id": "p1", "name": "P1", "number": 1},
+                    "set": {"_id": "s1", "name": "S1", "year": 2023, "standard": true},
+                    "updatedAt": "2023-01-01T00:00:00Z",
+                    "difficulty": 4,
+                    "number": 2,
+                    "answer_sanitized": "Answer 2",
+                    "question_sanitized": "Question 2"
+                }
+            ]
+        }
+        "#;
+
+        let parsed: Tossups = serde_json::from_str(multiple_json).unwrap();
+        assert_eq!(parsed.tossups.len(), 2);
+        assert_eq!(parsed.tossups[0].category, "Science");
+        assert_eq!(parsed.tossups[1].category, "History");
+        assert_eq!(parsed.tossups[0].difficulty, 3);
+        assert_eq!(parsed.tossups[1].difficulty, 4);
+    }
+
+    #[test]
+    fn test_malformed_json_handling() {
+        let malformed_jsons = vec![
+            r#"{"tossups": [{"_id": "incomplete""#,
+            r#"{"invalid": "structure"}"#,
+            r#"{"tossups": []}"#, // This should work (empty)
+        ];
+
+        for (i, json) in malformed_jsons.iter().enumerate() {
+            let result: Result<Tossups, _> = serde_json::from_str(json);
+            match i {
+                0 | 1 => assert!(result.is_err(), "Should fail for malformed JSON {}", i),
+                2 => {
+                    assert!(result.is_ok(), "Empty tossups array should be valid");
+                    assert_eq!(result.unwrap().tossups.len(), 0);
+                }
+                _ => {}
+            }
+        }
     }
 }
