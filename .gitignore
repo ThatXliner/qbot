@@ -28,3 +28,7 @@ cobertura.xml
 *.tmp
 *.temp
 *.profraw
+
+# AWS deployment temporary files
+/tmp/
+aws-task-def-*.json
