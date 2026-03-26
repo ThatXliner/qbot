@@ -325,23 +325,42 @@ pub async fn event_handler(
                         // State transition to invalid is bound to happen
                         return Ok(());
                     }
+                    // Transition to Judging while holding the lock, then release
+                    // before the potentially slow LLM call
+                    {
+                        let mut states = data.reading_states.lock().await;
+                        if let Some(state) = states.get_mut(&new_message.channel_id) {
+                            // Verify state hasn't changed since we read it
+                            if !matches!(state.0, QuestionState::Buzzed(uid, _) if uid == new_message.author.id) {
+                                debug!("State changed before we could judge (Buzzed), skipping");
+                                return Ok(());
+                            }
+                            state.0 = QuestionState::Judging;
+                            let _ = state.3.send(());
+                        } else {
+                            return Ok(());
+                        }
+                    }
+                    new_message.reply(&ctx.http, "Judging...").await?;
+                    let result = check_correct_answer(
+                        &data.llm,
+                        &data.reqwest,
+                        &current_state.4,
+                        new_message.content.as_str(),
+                        &current_state.3,
+                        false,
+                    )
+                    .await
+                    .map_err(|_| "Failed to access LLM")?;
+                    // Re-acquire the lock and apply the result
                     let mut states = data.reading_states.lock().await;
                     if let Some(state) = states.get_mut(&new_message.channel_id) {
-                        new_message.reply(&ctx.http, "Judging...").await?;
-                        state.0 = QuestionState::Judging;
-                        let _ = state.3.send(());
-                        state.0 = match check_correct_answer(
-                            &data.llm,
-                            &data.reqwest,
-                            &current_state.4,
-                            new_message.content.as_str(),
-                            &current_state.3,
-                            false,
-                        )
-                        .await
-                        .map_err(|_|"Failed to access LLM")?
-                        // State transition
-                        {
+                        // Only apply result if still in Judging state
+                        if state.0 != QuestionState::Judging {
+                            debug!("State changed during judging (Buzzed), skipping result");
+                            return Ok(());
+                        }
+                        state.0 = match result {
                             Response::Correct => QuestionState::Correct,
                             Response::Incorrect(_) => {
                                 state.2.insert(new_message.author.id);
@@ -367,24 +386,42 @@ pub async fn event_handler(
                         // State transition to invalid is bound to happen
                         return Ok(());
                     }
+                    // Transition to Judging while holding the lock, then release
+                    // before the potentially slow LLM call
+                    {
+                        let mut states = data.reading_states.lock().await;
+                        if let Some(state) = states.get_mut(&new_message.channel_id) {
+                            // Verify state hasn't changed since we read it
+                            if !matches!(state.0, QuestionState::Prompt(uid, _, _) if uid == new_message.author.id) {
+                                debug!("State changed before we could judge (Prompt), skipping");
+                                return Ok(());
+                            }
+                            state.0 = QuestionState::Judging;
+                            let _ = state.3.send(());
+                        } else {
+                            return Ok(());
+                        }
+                    }
+                    new_message.reply(&ctx.http, "Judging...").await?;
+                    let result = check_correct_answer(
+                        &data.llm,
+                        &data.reqwest,
+                        &current_state.4,
+                        new_message.content.as_str(),
+                        &current_state.3,
+                        true,
+                    )
+                    .await
+                    .map_err(|_| "Failed to access LLM")?;
+                    // Re-acquire the lock and apply the result
                     let mut states = data.reading_states.lock().await;
                     if let Some(state) = states.get_mut(&new_message.channel_id) {
-                        new_message.reply(&ctx.http, "Judging...").await?;
-                        state.0 = QuestionState::Judging;
-                        let _ = state.3.send(());
-
-                        state.0 = match check_correct_answer(
-                            &data.llm,
-                            &data.reqwest,
-                            &current_state.4,
-                            new_message.content.as_str(),
-                            &current_state.3,
-                            true,
-                        )
-                        .await
-                        .map_err(|_|"Failed to access LLM")?
-                        // State transition
-                        {
+                        // Only apply result if still in Judging state
+                        if state.0 != QuestionState::Judging {
+                            debug!("State changed during judging (Prompt), skipping result");
+                            return Ok(());
+                        }
+                        state.0 = match result {
                             Response::Correct => QuestionState::Correct,
                             Response::Incorrect(_) | Response::Prompt(_) => {
                                 state.2.insert(new_message.author.id);
