@@ -3,6 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "Cargo*"
+      - "Dockerfile"
+  workflow_dispatch:
 env:
   CARGO_TERM_COLOR: always
 
