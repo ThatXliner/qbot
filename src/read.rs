@@ -331,7 +331,8 @@ pub async fn event_handler(
                         let mut states = data.reading_states.lock().await;
                         if let Some(state) = states.get_mut(&new_message.channel_id) {
                             // Verify state hasn't changed since we read it
-                            if !matches!(state.0, QuestionState::Buzzed(uid, _) if uid == new_message.author.id) {
+                            if !matches!(state.0, QuestionState::Buzzed(uid, _) if uid == new_message.author.id)
+                            {
                                 debug!("State changed before we could judge (Buzzed), skipping");
                                 return Ok(());
                             }
@@ -392,7 +393,8 @@ pub async fn event_handler(
                         let mut states = data.reading_states.lock().await;
                         if let Some(state) = states.get_mut(&new_message.channel_id) {
                             // Verify state hasn't changed since we read it
-                            if !matches!(state.0, QuestionState::Prompt(uid, _, _) if uid == new_message.author.id) {
+                            if !matches!(state.0, QuestionState::Prompt(uid, _, _) if uid == new_message.author.id)
+                            {
                                 debug!("State changed before we could judge (Prompt), skipping");
                                 return Ok(());
                             }
