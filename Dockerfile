@@ -1,4 +1,8 @@
-FROM rust:1.89 as builder
+FROM rust:1.89-trixie AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge "20250419+deb13u1" \
+    && rm -rf /var/lib/apt/lists/*
 
 LABEL org.opencontainers.image.source=https://github.com/ThatXliner/qbot
 # Set the working directory
