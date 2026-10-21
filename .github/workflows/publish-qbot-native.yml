@@ -1,0 +1,157 @@
+name: Publish Qbot natively
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qbot-native-publication
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: 0f0e708b6087dee1c3aa02db6566c2abdc574dc2
+  IMAGE: ghcr.io/thatxliner/qbot
+
+jobs:
+  native:
+    name: Native ${{ matrix.arch }} build and TLS proof
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            machine: x86_64
+            runner: ubuntu-24.04
+          - arch: arm64
+            machine: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout publication tools
+        uses: actions/checkout@v4
+        with:
+          path: tools
+          persist-credentials: false
+      - name: Checkout exact Qbot source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: app
+          persist-credentials: false
+      - name: Verify native runner and helper lock
+        env:
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+        run: |
+          test "$(uname -m)" = "$EXPECTED_MACHINE"
+          test "$(git -C app rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 tools/scripts/test-native-tls/verify.py locks --app app
+      - uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+      - uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push native Qbot image
+        id: build
+        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
+        with:
+          context: app
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ${{ env.IMAGE }}:security-${{ env.SOURCE_SHA }}-${{ github.run_id }}-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/ThatXliner/qbot
+            org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+          cache-from: type=gha,scope=qbot-native-${{ matrix.arch }}
+          cache-to: type=gha,scope=qbot-native-${{ matrix.arch }},mode=max
+      - name: Build exact backend helper using Qbot builder dependencies
+        run: |
+          docker buildx build --load --target builder -t qbot-native-builder app
+          mkdir helper
+          docker run --rm --entrypoint sh --workdir /probe \
+            --volume "$PWD/tools/scripts/test-native-tls:/probe:ro" \
+            --volume "$PWD/helper:/out" qbot-native-builder -ec '
+              CARGO_TARGET_DIR=/app/target cargo build --release --locked --jobs 1
+              cargo tree --locked -i native-tls
+              cargo tree --locked -i openssl
+              cp /app/target/release/emudhra-linux-native-probe /out/tls-probe
+            '
+      - name: Prove native TLS inside the published architecture image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker pull "$IMAGE@$DIGEST"
+          python3 tools/scripts/test-native-tls/verify.py image \
+            --image "$IMAGE@$DIGEST" --arch "$ARCH" \
+            --helper helper/tls-probe --app app --output "proof-$ARCH.json"
+      - name: Retain TLS and image evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qbot-native-proof-${{ matrix.arch }}
+          path: proof-${{ matrix.arch }}.json
+          if-no-files-found: error
+
+  manifest:
+    name: Publish proven native manifest
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: qbot-native-proof-*
+          path: proofs
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+      - uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify both native proofs and anonymous image availability
+        run: python3 scripts/test-native-tls/verify.py public --proofs proofs
+      - name: Guard current main application tree and publish main tag
+        run: |
+          git fetch origin main
+          git diff --exit-code "$SOURCE_SHA" FETCH_HEAD -- 'Cargo*' Dockerfile src templates .dockerignore build.rs
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import os
+          import subprocess
+          proofs = [json.loads(path.read_text()) for path in sorted(Path('proofs').glob('proof-*.json'))]
+          subprocess.run(['docker', 'buildx', 'imagetools', 'create', '--tag', os.environ['IMAGE'] + ':main',
+                          *[proof['image'] for proof in proofs]], check=True)
+          PY
+      - name: Verify public main manifest contains both proven images
+        run: python3 scripts/test-native-tls/verify.py public --proofs proofs --tag main | tee public-manifest.json
+      - name: Install cosign
+        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
+        with:
+          cosign-release: v2.2.4
+      - name: Sign published manifest
+        run: |
+          DIGEST=$(python3 -c 'import json; print(json.load(open("public-manifest.json"))["digest"])')
+          cosign sign --yes "$IMAGE@$DIGEST"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qbot-native-publication
+          path: |
+            proofs/
+            public-manifest.json
