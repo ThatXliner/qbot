@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'QBot ECS Service'
+
+Parameters:
+  StackName:
+    Description: Name of the infrastructure stack
+    Type: String
+    Default: qbot-infrastructure
+
+  TaskDefinitionArn:
+    Description: ARN of the QBot task definition
+    Type: String
+
+  DesiredCount:
+    Description: Number of tasks to run
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 10
+
+  EnableAutoScaling:
+    Description: Enable auto scaling for the service
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+
+Resources:
+  # ECS Service
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: qbot-service
+      Cluster: !ImportValue
+        Fn::Sub: ${StackName}-ECSCluster
+      TaskDefinition: !Ref TaskDefinitionArn
+      DesiredCount: !Ref DesiredCount
+      LaunchType: EC2
+      PlacementStrategies:
+        - Type: spread
+          Field: instanceId
+      PlacementConstraints:
+        - Type: distinctInstance
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableExecuteCommand: true
+      Tags:
+        - Key: Name
+          Value: QBot Service
+
+  # Auto Scaling (optional)
+  ServiceScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Condition: AutoScalingEnabled
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub 'service/${ECSService.ClusterName}/${ECSService.Name}'
+      RoleARN: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService'
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  ServiceScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Condition: AutoScalingEnabled
+    Properties:
+      PolicyName: qbot-scaling-policy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ServiceScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 70.0
+        ScaleOutCooldown: 300
+        ScaleInCooldown: 300
+
+Conditions:
+  AutoScalingEnabled: !Equals [!Ref EnableAutoScaling, 'true']
+
+Outputs:
+  ServiceName:
+    Description: Name of the ECS service
+    Value: !GetAtt ECSService.Name
+    Export:
+      Name: !Sub ${AWS::StackName}-ServiceName
+
+  ServiceArn:
+    Description: ARN of the ECS service
+    Value: !Ref ECSService
+    Export:
+      Name: !Sub ${AWS::StackName}-ServiceArn
