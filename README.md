@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ThatXliner/qbot/actions/workflows/ci.yml/badge.svg)](https://github.com/ThatXliner/qbot/actions/workflows/ci.yml)
 
-[![Watch the 20-second QBot video](brag-output/brag.jpg)](brag-output/brag.mp4)
+[![Watch the 20-second QBot video](brag-output/brag.jpg)](https://youtu.be/mc63GECpd9w)
 
 A sophisticated Discord bot for quiz bowl question practice featuring an advanced query language for filtering questions by category. Built with Rust for high performance and reliability.
 
