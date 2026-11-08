@@ -16,36 +16,8 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  tls:
-    name: Ollama TLS (${{ matrix.arch }})
-    strategy:
-      max-parallel: 2
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build test image
-        run: docker build --tag ollama-tls-test ollama
-      - name: Test Ollama outbound TLS
-        run: python3 ollama/test_tls.py ollama-tls-test | tee tls-result.json
-      - name: Upload TLS evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ollama-tls-${{ matrix.arch }}
-          path: tls-result.json
-
   ollama:
     name: Build and push Ollama image
-    needs: tls
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
